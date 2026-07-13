@@ -1,0 +1,26 @@
+# Virtual environment
+venv/
+.venv/
+backend/venv/
+
+# Node modules
+node_modules/
+frontend/node_modules/
+
+# Local env files
+.env
+.env*.local
+
+# OS files
+.DS_Store
+
+# IDE files
+.vscode/
+.idea/
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/

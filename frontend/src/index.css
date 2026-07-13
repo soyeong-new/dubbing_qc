@@ -1,0 +1,12 @@
+/* Simple reset for Aether QC Dashboard */
+body {
+  margin: 0;
+  padding: 0;
+  background-color: #0a0d16;
+  color: #e2e8f0;
+}
+
+#root {
+  width: 100%;
+  min-height: 100vh;
+}
