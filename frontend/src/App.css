@@ -1114,3 +1114,18 @@ body {
 .start-btn:disabled { background: #2a3340; color: #667; cursor: not-allowed; }
 .error-banner { margin: 16px 0; padding: 12px; border-radius: 8px;
   background: #3a1c1c; color: #ff8a8a; }
+
+.persona-alternatives { display: flex; flex-direction: column; gap: 6px; margin: 10px 0; }
+.alt-chip { display: flex; gap: 10px; align-items: baseline; text-align: left;
+  padding: 8px 12px; border-radius: 8px; background: #161c26; border: 1px solid #2a3547;
+  color: #dde6f2; cursor: pointer; }
+.alt-chip:hover { border-color: #4a9eff; }
+.alt-persona { font-size: 11px; color: #8fa1b8; white-space: nowrap; }
+.alt-text { font-size: 13px; }
+.finding-meta { font-size: 12px; color: #66788f; margin: 6px 0; }
+.review-actions { display: flex; gap: 8px; margin-top: 10px; }
+.btn-approve { background: #1d3a2a; color: #3ddc84; border: 1px solid #2a5a3f; }
+.btn-reject { background: #3a1c1c; color: #ff8a8a; border: 1px solid #5a2a2a; }
+.btn-modify { background: #1e2a3f; color: #4a9eff; border: 1px solid #2a3f5f; }
+.btn-approve, .btn-reject, .btn-modify { padding: 6px 14px; border-radius: 6px; cursor: pointer; }
+.reviewed-badge { font-size: 13px; color: #8fa1b8; }

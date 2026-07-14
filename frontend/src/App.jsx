@@ -1,12 +1,14 @@
 import React, { useState, useEffect, useRef } from "react";
 import "./App.css";
 import ProjectView from "./views/ProjectView";
+import { postFeedback } from "./api";
 
 function App() {
   const [view, setView] = useState("project"); // "project" | "review" | "report"
   const [uploads, setUploads] = useState({});
   const [jobId, setJobId] = useState(null);
   const [qcResult, setQcResult] = useState(null);
+  const [reviewedFindings, setReviewedFindings] = useState({}); // {findingId: {action, finalText}}
   const [segments, setSegments] = useState([]);
   const [findings, setFindings] = useState([]);
   const [overallScore, setOverallScore] = useState(100);
@@ -602,34 +604,19 @@ function App() {
   };
 
   // 5. Action Handlers
-  const applyAIFix = (findingId, segmentId, recommendation) => {
-    const updatedSegments = segments.map(seg => {
-      if (seg.id === segmentId) {
-        return { ...seg, translated_text: recommendation };
-      }
-      return seg;
+  // 검수 액션: 모든 클릭이 피드백 저장소에 기록된다 (학습 데이터 축적 입구)
+  const reviewFinding = async (finding, action, finalText = "", chosenPersona = "") => {
+    await postFeedback({
+      movie: qcResult?.movie_title || "untitled",
+      segment_id: finding.segment_id,
+      korean: finding.original_text,
+      dubbed: finding.current_translation,
+      finding_id: finding.id,
+      reviewer_action: action, // "approved" | "rejected" | "modified"
+      final_text: finalText,
+      chosen_persona: chosenPersona,
     });
-    setSegments(updatedSegments);
-
-    const updatedFindings = findings.filter(f => f.id !== findingId);
-    setFindings(updatedFindings);
-    updateStats(updatedFindings);
-
-    const highCnt = updatedFindings.filter(f => f.severity === "high").length;
-    const medCnt = updatedFindings.filter(f => f.severity === "medium").length;
-    const lowCnt = updatedFindings.filter(f => f.severity === "low").length;
-    setOverallScore(Math.max(100 - (highCnt * 15 + medCnt * 8 + lowCnt * 3), 0));
-  };
-
-  const ignoreFinding = (findingId) => {
-    const updatedFindings = findings.filter(f => f.id !== findingId);
-    setFindings(updatedFindings);
-    updateStats(updatedFindings);
-    
-    const highCnt = updatedFindings.filter(f => f.severity === "high").length;
-    const medCnt = updatedFindings.filter(f => f.severity === "medium").length;
-    const lowCnt = updatedFindings.filter(f => f.severity === "low").length;
-    setOverallScore(Math.max(100 - (highCnt * 15 + medCnt * 8 + lowCnt * 3), 0));
+    setReviewedFindings((r) => ({ ...r, [finding.id]: { action, finalText } }));
   };
 
   // 6. Video Sync Time Tracking
@@ -1267,21 +1254,36 @@ function App() {
                       <p className="rec-text">"{finding.recommendation}"</p>
                     </div>
 
-                    <div className="finding-actions">
-                      <button 
-                        className="btn-apply-fix"
-                        onClick={() => applyAIFix(finding.id, finding.segment_id, finding.recommendation)}
-                        id={`btn-apply-${finding.id}`}
-                      >
-                        수정안 적용
-                      </button>
-                      <button 
-                        className="btn-ignore"
-                        onClick={() => ignoreFinding(finding.id)}
-                        id={`btn-ignore-${finding.id}`}
-                      >
-                        무시
-                      </button>
+                    <div className="persona-alternatives">
+                      {Object.entries(finding.alternatives || {}).map(([persona, suggestion]) => (
+                        <button key={persona} className="alt-chip"
+                          title={`${persona}의 수정안 채택`}
+                          onClick={() => reviewFinding(finding, "modified", suggestion, persona)}>
+                          <span className="alt-persona">{persona}</span>
+                          <span className="alt-text">{suggestion}</span>
+                        </button>
+                      ))}
+                    </div>
+                    <div className="finding-meta">
+                      동의 {finding.agreement}/3 · {finding.axis} · {finding.source === "rule" ? "룰 체크" : finding.source.replace("persona:", "")}
+                    </div>
+                    <div className="review-actions">
+                      {reviewedFindings[finding.id] ? (
+                        <span className="reviewed-badge">
+                          {reviewedFindings[finding.id].action === "approved" ? "✓ 승인됨"
+                            : reviewedFindings[finding.id].action === "rejected" ? "✕ 반려됨(오탐)"
+                            : "✎ 수정 확정"}
+                        </span>
+                      ) : (
+                        <>
+                          <button className="btn-approve" onClick={() => reviewFinding(finding, "approved")}>승인</button>
+                          <button className="btn-reject" onClick={() => reviewFinding(finding, "rejected")}>반려 (오탐)</button>
+                          <button className="btn-modify" onClick={() => {
+                            const text = window.prompt("최종 영어 대사를 입력하세요:", finding.recommendation);
+                            if (text) reviewFinding(finding, "modified", text);
+                          }}>직접 수정</button>
+                        </>
+                      )}
                     </div>
                   </div>
                 </div>
