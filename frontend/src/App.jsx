@@ -18,7 +18,9 @@ function App() {
   const [filter, setFilter] = useState("all"); 
   const [severityFilter, setSeverityFilter] = useState("all"); 
   const [isAnalyzing, setIsAnalyzing] = useState(false);
-  const [backendStatus, setBackendStatus] = useState("checking"); 
+  const [backendStatus, setBackendStatus] = useState("checking");
+  const [analysisSource, setAnalysisSource] = useState(null); // "gemini" | "local"
+  const [analysisError, setAnalysisError] = useState(null);
   
   // Video & audio states
   const [isPlaying, setIsPlaying] = useState(false);
@@ -70,7 +72,7 @@ function App() {
       const data = await res.json();
       setSegments(data);
       setBackendStatus("connected");
-      runQCAnalysis(data, false);
+      runQCAnalysis(data, false, true);
     } catch (e) {
       console.warn("Backend connection failed. Running in Standalone Mock mode.");
       setBackendStatus("standalone");
@@ -243,9 +245,11 @@ function App() {
           console.log("Original media uploaded successfully:", data);
         } else {
           console.error("Original media upload failed:", data.error);
+          setAnalysisError(`원본 미디어 업로드 실패: ${data.error || "알 수 없는 오류"}`);
         }
       } catch (err) {
         console.error("Error uploading original media:", err);
+        setAnalysisError(`원본 미디어 업로드 실패: ${err.message}`);
       } finally {
         setUploadingOriginal(false);
       }
@@ -261,14 +265,30 @@ function App() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ audio_path: originalAudioPath }),
       });
+      if (!res.ok) throw new Error(`서버 응답 ${res.status}`);
       const data = await res.json();
       if (Array.isArray(data)) {
-        setSegments(data);
+        // Convert to the raw-KR shape alignScripts expects, and re-align against
+        // any English subtitles already loaded, instead of overwriting segments
+        // outright (which used to wipe out previously loaded EN translations).
+        const krList = data.map(s => ({
+          id: s.id,
+          start_time: s.start_time,
+          end_time: s.end_time,
+          speaker: s.speaker,
+          text: s.original_text
+        }));
+        setRawKrSegments(krList);
+        const merged = alignScripts(krList, rawEnSegments);
+        setSegments(merged);
         setKrFileName("[AI 전사 완료] ko_transcript.json");
-        runQCAnalysis(data, false);
+        runQCAnalysis(merged, false);
+      } else {
+        throw new Error("전사 결과 형식이 올바르지 않습니다.");
       }
     } catch (err) {
       console.error("Transcription failed:", err);
+      setAnalysisError(`AI 전사(STT) 실패: ${err.message}`);
     } finally {
       setIsTranscribing(false);
     }
@@ -283,14 +303,18 @@ function App() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ segments }),
       });
+      if (!res.ok) throw new Error(`서버 응답 ${res.status}`);
       const data = await res.json();
       if (Array.isArray(data)) {
         setSegments(data);
         setEnFileName("[AI 번역 완료] en_translation.srt");
         runQCAnalysis(data, false);
+      } else {
+        throw new Error("번역 결과 형식이 올바르지 않습니다.");
       }
     } catch (err) {
       console.error("Translation failed:", err);
+      setAnalysisError(`AI 번역 실패: ${err.message}`);
     } finally {
       setIsTranslating(false);
     }
@@ -325,9 +349,11 @@ function App() {
           console.log("Video uploaded and audio/waveform extracted successfully:", data);
         } else {
           console.error("Video upload failed:", data.error);
+          setAnalysisError(`영상 업로드 실패: ${data.error || "알 수 없는 오류"}`);
         }
       } catch (err) {
         console.error("Error uploading video:", err);
+        setAnalysisError(`영상 업로드 실패: ${err.message}`);
       } finally {
         setUploadingVideo(false);
       }
@@ -386,11 +412,18 @@ function App() {
   };
 
   // 3. Core QC Analyzer (API or Standalone JS engine)
-  const runQCAnalysis = async (currentSegments, forceStandalone = false) => {
+  // knownConnected lets a caller assert connectivity it just confirmed itself
+  // (e.g. right after a successful fetch), instead of relying on the
+  // `backendStatus` state var, which may still hold its pre-update value here
+  // due to React closures when called synchronously after setBackendStatus().
+  const runQCAnalysis = async (currentSegments, forceStandalone = false, knownConnected = null) => {
     if (currentSegments.length === 0) return;
     setIsAnalyzing(true);
-    
-    if (backendStatus === "connected" && !forceStandalone) {
+    setAnalysisError(null);
+
+    const isBackendConnected = knownConnected !== null ? knownConnected : backendStatus === "connected";
+
+    if (isBackendConnected && !forceStandalone) {
       try {
         const res = await fetch("http://localhost:8000/api/qc/process", {
           method: "POST",
@@ -398,21 +431,26 @@ function App() {
           body: JSON.stringify({
             segments: currentSegments,
             audio_path: backendAudioPath,
-            use_mock: false 
+            use_mock: false
           })
         });
+        if (!res.ok) throw new Error(`Backend returned ${res.status}`);
         const data = await res.json();
+        if (!Array.isArray(data.findings)) throw new Error("Malformed response: missing findings");
         setFindings(data.findings);
         setOverallScore(data.overall_score);
         updateStats(data.findings);
+        setAnalysisSource("gemini");
         setIsAnalyzing(false);
         return;
       } catch (err) {
         console.error("Failed to fetch analysis, using local analyzer:", err);
+        setAnalysisError(`AI 백엔드 검수 실패 (${err.message}). 로컬 규칙 기반 엔진으로 대체합니다.`);
       }
     }
 
     // Local JS Analyzer (For Standalone or local fallback)
+    setAnalysisSource("local");
     setTimeout(() => {
       const localFindings = [];
       
@@ -919,10 +957,15 @@ function App() {
         <div className="header-status">
           <div className={`status-badge ${backendStatus}`}>
             <span className="pulse-dot"></span>
-            {backendStatus === "connected" ? "AI 백엔드 연결됨" : 
+            {backendStatus === "connected" ? "AI 백엔드 연결됨" :
              backendStatus === "standalone" ? "로컬 스탠드얼론 모드" : "엔진 연결 확인 중..."}
           </div>
-          <button 
+          {analysisSource && (
+            <div className={`status-badge source-${analysisSource}`} title="마지막 검수 결과가 어느 엔진에서 나왔는지 표시합니다.">
+              {analysisSource === "gemini" ? "검수 엔진: Gemini AI" : "검수 엔진: 로컬 규칙 기반 (폴백)"}
+            </div>
+          )}
+          <button
             className={`reanalyze-btn ${isAnalyzing ? "loading" : ""}`}
             onClick={() => runQCAnalysis(segments, backendStatus === "standalone")}
             disabled={isAnalyzing || segments.length === 0}
@@ -963,6 +1006,13 @@ function App() {
           </div>
         </div>
       </header>
+
+      {analysisError && (
+        <div className="analysis-error-banner">
+          <span>⚠ {analysisError}</span>
+          <button onClick={() => setAnalysisError(null)}>닫기</button>
+        </div>
+      )}
 
       {/* 2. Stats strip */}
       <div className="stats-strip">

@@ -158,6 +158,40 @@ body {
   box-shadow: var(--glow-primary);
 }
 
+.status-badge.source-gemini {
+  color: var(--accent-cyan);
+  border-color: rgba(6, 182, 212, 0.3);
+}
+
+.status-badge.source-local {
+  color: var(--severity-medium);
+  border-color: rgba(249, 115, 22, 0.3);
+}
+
+.analysis-error-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  background: rgba(239, 68, 68, 0.08);
+  border: 1px solid rgba(239, 68, 68, 0.35);
+  color: var(--severity-high);
+  font-size: 13px;
+  padding: 10px 20px;
+  margin: 0 40px 12px;
+  border-radius: 6px;
+}
+
+.analysis-error-banner button {
+  background: transparent;
+  border: 1px solid rgba(239, 68, 68, 0.35);
+  color: inherit;
+  border-radius: 4px;
+  padding: 4px 10px;
+  font-size: 12px;
+  cursor: pointer;
+}
+
 .pulse-dot {
   width: 6px;
   height: 6px;

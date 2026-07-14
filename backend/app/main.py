@@ -66,8 +66,8 @@ async def upload_media(file: UploadFile = File(...), role: str = "dubbed"):
         
     audio_filename = f"{role}_{os.path.splitext(safe_filename)[0]}.wav"
     audio_path = os.path.join(temp_dir, audio_filename)
-    raw_audio_path = os.path.join(temp_dir, f"{role}_{os.path.splitext(safe_filename)[0]}_100hz.raw")
-    
+    raw_audio_path = os.path.join(temp_dir, f"{role}_{os.path.splitext(safe_filename)[0]}_peaks.raw")
+
     try:
         # Extract audio (16kHz mono WAV) for Gemini analysis/transcription
         subprocess.run([
@@ -75,11 +75,15 @@ async def upload_media(file: UploadFile = File(...), role: str = "dubbed"):
             "-vn", "-acodec", "pcm_s16le", "-ar", "16000", "-ac", "1",
             "-y", audio_path
         ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        
-        # Extract 100Hz PCM raw audio for waveform peaks calculation
+
+        # Extract raw PCM at the same 16kHz rate for peak calculation below.
+        # NOTE: do not resample down to a low rate (e.g. 100Hz) here - ffmpeg applies
+        # an anti-aliasing low-pass filter on resample, which strips out most speech
+        # energy (it lives above the new Nyquist frequency) and leaves a near-silent
+        # waveform. Downsampling for the visual peaks happens via max-per-bin below instead.
         subprocess.run([
             "ffmpeg", "-i", media_path,
-            "-f", "s16le", "-ac", "1", "-ar", "100",
+            "-f", "s16le", "-ac", "1", "-ar", "16000",
             "-y", raw_audio_path
         ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         
@@ -338,15 +342,24 @@ async def translate_script(request: TranslateRequest):
         print("[AI 번역] Gemini 번역 응답 수신 완료. 결과 파싱 중...")
         
         translated_data = json.loads(response.text)
-        
+        by_id = {item.get("id"): item for item in translated_data}
+
+        # Rebuild in the original segment order/count and fall back per-segment
+        # when Gemini's response silently drops a line (a real failure mode on
+        # large/varied batches) instead of returning whatever subset it gave us.
         res_segments = []
-        for item in translated_data:
+        for seg in request.segments:
+            item = by_id.get(seg.id)
+            if item is None:
+                print(f"[AI 번역] 경고: 세그먼트 {seg.id}가 번역 응답에서 누락되어 원본 텍스트로 대체합니다.")
+                res_segments.append(seg)
+                continue
             res_segments.append(ScriptSegment(
-                id=item.get("id"),
-                start_time=float(item.get("start_time", 0.0)),
-                end_time=float(item.get("end_time", 0.0)),
-                speaker=item.get("speaker", ""),
-                original_text=item.get("original_text", ""),
+                id=seg.id,
+                start_time=float(item.get("start_time", seg.start_time)),
+                end_time=float(item.get("end_time", seg.end_time)),
+                speaker=item.get("speaker", seg.speaker),
+                original_text=item.get("original_text", seg.original_text),
                 translated_text=item.get("translated_text", "")
             ))
         return res_segments
