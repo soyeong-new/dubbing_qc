@@ -1,6 +1,83 @@
 from pydantic import BaseModel, Field
-from typing import List, Optional
+from typing import List, Optional, Dict, Literal
 
+AXES = ["음질", "감정 표현", "싱크 정확도", "자연스러움", "언어 적합성"]
+
+
+class SegmentText(BaseModel):
+    start: float
+    end: float
+    speaker: str = "?"
+    text: str
+
+
+class AlignedPair(BaseModel):
+    id: str
+    korean: Optional[SegmentText] = None
+    dubbed: Optional[SegmentText] = None
+    scene_id: str = ""
+    alignment_confidence: float = 1.0
+
+
+class QCFinding(BaseModel):
+    id: str
+    segment_id: str
+    category: str = Field(..., description="'localization' or 'voice'")
+    severity: str = Field(..., description="'high' | 'medium' | 'low'")
+    issue_type: str
+    start_time: float
+    end_time: float
+    speaker: str
+    description: str = Field(..., description="반드시 한국어")
+    original_text: str
+    current_translation: str
+    recommendation: str = Field(..., description="반드시 영어 더빙 대사")
+    confidence: float
+    axis: str = "언어 적합성"
+    source: str = "rule"
+    agreement: int = 1
+    alternatives: Dict[str, str] = Field(default_factory=dict)
+
+
+class AxisScore(BaseModel):
+    axis: str
+    mos: int = Field(..., ge=1, le=5)
+    deduction_rate: float
+
+
+class Verdict(BaseModel):
+    status: Literal["pass", "conditional", "fail"]
+    axis_scores: List[AxisScore]
+    reasons: List[str] = Field(default_factory=list)
+
+
+class QCJobInput(BaseModel):
+    movie_title: str = "untitled"
+    en_srt_path: str
+    kr_srt_path: Optional[str] = None
+    kr_audio_path: Optional[str] = None
+    stem_audio_path: Optional[str] = None
+
+
+class QCResult(BaseModel):
+    verdict: Verdict
+    findings: List[QCFinding]
+    pairs: List[AlignedPair]
+
+
+class FeedbackEntry(BaseModel):
+    movie: str
+    segment_id: str
+    korean: str
+    dubbed: str
+    finding_id: str
+    reviewer_action: Literal["approved", "rejected", "modified"]
+    final_text: str = ""
+    chosen_persona: str = ""
+    timestamp: str = ""
+
+
+# Legacy models - kept for backward compatibility with existing endpoints
 class ScriptSegment(BaseModel):
     id: str = Field(..., description="Segment ID")
     start_time: float = Field(..., description="Start time in seconds")
@@ -14,21 +91,6 @@ class QCRequest(BaseModel):
     audio_path: Optional[str] = Field(None, description="Optional path to extracted audio file on server")
     segments: List[ScriptSegment] = Field(..., description="List of script segments to analyze")
     use_mock: bool = Field(True, description="Whether to use mock data for testing")
-
-class QCFinding(BaseModel):
-    id: str = Field(..., description="Finding ID")
-    segment_id: str = Field(..., description="Associated segment ID")
-    category: str = Field(..., description="Category: 'localization' or 'voice'")
-    severity: str = Field(..., description="Severity: 'high', 'medium', or 'low'")
-    issue_type: str = Field(..., description="Type of issue (e.g., 'Sync Error', 'Cultural Nuance', 'Voice Tone', 'Translation Mistake')")
-    start_time: float = Field(..., description="Start time of the issue")
-    end_time: float = Field(..., description="End time of the issue")
-    speaker: str = Field(..., description="Speaker identifier")
-    description: str = Field(..., description="Detailed description of the issue")
-    original_text: str = Field(..., description="Korean text")
-    current_translation: str = Field(..., description="Current English translation")
-    recommendation: str = Field(..., description="AI suggested correction")
-    confidence: float = Field(..., description="AI confidence score (0.0 to 1.0)")
 
 class QCStats(BaseModel):
     total_findings: int
