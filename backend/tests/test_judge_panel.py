@@ -50,3 +50,20 @@ async def test_run_panel_end_to_end_with_mock(monkeypatch):
     assert len(findings) == 1
     assert findings[0].agreement == 3
     assert progress[-1] == (1, 1)
+
+
+async def test_run_panel_survives_audio_clip_extraction_failure(monkeypatch):
+    # stem_wav_path가 존재하지 않아 ffmpeg 추출이 실패해도 패널 전체가 죽으면 안 된다
+    monkeypatch.setenv("QC_PROVIDER", "mock")
+    provider = get_provider()
+    pair = AlignedPair(
+        id="pair_1", scene_id="scene_1",
+        korean=SegmentText(start=0, end=2, speaker="A", text="어이가 없네."),
+        dubbed=SegmentText(start=0, end=2, speaker="A", text="I have no kidney."),
+    )
+    findings = await run_panel(
+        {"scene_1": [pair]}, knowledge="", provider=provider,
+        stem_wav_path="/nonexistent/stem.wav",
+    )
+    assert len(findings) == 1
+    assert findings[0].agreement == 3

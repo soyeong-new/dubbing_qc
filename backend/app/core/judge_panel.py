@@ -78,7 +78,10 @@ async def run_panel(scenes: Dict[str, List[AlignedPair]], knowledge: str,
         if stem_wav_path:
             anchors = [(p.dubbed or p.korean) for p in pairs if (p.dubbed or p.korean)]
             if anchors:
-                clip_path = extract_clip(stem_wav_path, anchors[0].start, anchors[-1].end)
+                try:
+                    clip_path = extract_clip(stem_wav_path, anchors[0].start, anchors[-1].end)
+                except Exception as e:
+                    print(f"[패널] {scene_id} 오디오 클립 추출 실패, 오디오 없이 진행: {e}")
         for persona in PERSONAS:
             audio = clip_path if persona.uses_audio else None
             for attempt in (1, 2):
