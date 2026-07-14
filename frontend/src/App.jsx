@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from "react";
 import "./App.css";
 import ProjectView from "./views/ProjectView";
+import ReportView from "./views/ReportView";
 import { postFeedback } from "./api";
 
 function App() {
@@ -1320,6 +1321,11 @@ function App() {
 
       </div>
       </>
+      )}
+
+      {view === "report" && (
+        <ReportView result={qcResult} jobId={jobId}
+          findings={findings} reviewed={reviewedFindings} />
       )}
     </div>
   );
