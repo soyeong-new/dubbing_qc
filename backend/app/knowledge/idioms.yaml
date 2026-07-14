@@ -1,0 +1,18 @@
+# 관용구 사전 — 검수자가 직접 추가/수정 가능
+rules:
+  - term: 눈치 (보다/채다/없다)
+    rule: eye/look 직역 금지. read the room, walk on eggshells, take a hint 등 상황별 의역.
+    bad: "Stop looking at my eyes."
+    good: "Stop walking on eggshells."
+  - term: 어이가 없네
+    rule: 신체 부위 오역(kidney 등) 치명 오류. ridiculous, unbelievable, speechless 계열로.
+    bad: "I have no kidney."
+    good: "This is ridiculous."
+  - term: 밥 먹었어? / 밥은 먹고 다니냐
+    rule: 식사 여부가 아닌 안부 인사면 How are you / You doing okay 계열. 실제 식사 제안이면 직역 유지.
+    bad: "Did you eat rice?"
+    good: "Have you eaten? / You doing okay?"
+  - term: 수고하셨습니다
+    rule: You suffered 직역 금지. Good work / Thanks for today 등.
+    bad: "You suffered a lot."
+    good: "Great work today."
