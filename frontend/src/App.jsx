@@ -1,7 +1,12 @@
 import React, { useState, useEffect, useRef } from "react";
 import "./App.css";
+import ProjectView from "./views/ProjectView";
 
 function App() {
+  const [view, setView] = useState("project"); // "project" | "review" | "report"
+  const [uploads, setUploads] = useState({});
+  const [jobId, setJobId] = useState(null);
+  const [qcResult, setQcResult] = useState(null);
   const [segments, setSegments] = useState([]);
   const [findings, setFindings] = useState([]);
   const [overallScore, setOverallScore] = useState(100);
@@ -59,61 +64,24 @@ function App() {
   const enInputRef = useRef(null);
   const originalInputRef = useRef(null);
 
-  // 1. Initial Data Fetching & Standalone Fallback
-  useEffect(() => {
-    fetchMockData();
-  }, []);
-
-  const fetchMockData = async () => {
-    try {
-      setBackendStatus("checking");
-      const res = await fetch("http://localhost:8000/api/qc/mock-data");
-      if (!res.ok) throw new Error("Backend not responding");
-      const data = await res.json();
-      setSegments(data);
-      setBackendStatus("connected");
-      runQCAnalysis(data, false, true);
-    } catch (e) {
-      console.warn("Backend connection failed. Running in Standalone Mock mode.");
-      setBackendStatus("standalone");
-      
-      const localMockData = [
-        {
-          id: "seg_1",
-          start_time: 0.5,
-          end_time: 3.2,
-          speaker: "민우 (Min-woo)",
-          original_text: "야, 너 어제 형한테 눈치 보지 말고 말하라고 했지?",
-          translated_text: "Hey, didn't you tell brother yesterday to speak without looking at eyes?"
-        },
-        {
-          id: "seg_2",
-          start_time: 4.0,
-          end_time: 5.5,
-          speaker: "수현 (Su-hyun)",
-          original_text: "내가 언제 그랬어? 미안하게 진짜.",
-          translated_text: "When did I say that? I am truly sorry."
-        },
-        {
-          id: "seg_3",
-          start_time: 6.0,
-          end_time: 7.5,
-          speaker: "민우 (Min-woo)",
-          original_text: "참나, 어이가 없네. 밥은 먹었냐?",
-          translated_text: "Wow, I have no kidney. Did you eat rice?"
-        },
-        {
-          id: "seg_4",
-          start_time: 8.0,
-          end_time: 9.8,
-          speaker: "수현 (Su-hyun)",
-          original_text: "갑자기 무슨 밥 타령이야? 비켜, 나 바빠.",
-          translated_text: "Why are you talking about rice all of a sudden? Get out of my way, I am very busy right now because I have a lot of things to finish before the sun goes down."
-        }
-      ];
-      setSegments(localMockData);
-      runQCAnalysis(localMockData, true);
-    }
+  // 1. Job completion handler — bridges the Project tab's async QC job
+  // result into the existing review-dashboard state (segments/findings/stats)
+  // so the review view can be reused as-is, then switches to the review tab.
+  const handleJobComplete = (id, result) => {
+    setJobId(id);
+    setQcResult(result);
+    setFindings(result.findings);
+    // AlignedPair → 기존 세그먼트 상태로 변환 (검수 뷰 재사용)
+    setSegments(result.pairs.map((p) => ({
+      id: p.id,
+      start_time: (p.korean || p.dubbed).start,
+      end_time: (p.korean || p.dubbed).end,
+      speaker: (p.korean || p.dubbed).speaker,
+      original_text: p.korean ? p.korean.text : "",
+      translated_text: p.dubbed ? p.dubbed.text : "",
+    })));
+    updateStats(result.findings);
+    setView("review");
   };
 
   // Helper: Normalize SRT Time format "00:00:01,000" to seconds
@@ -857,6 +825,19 @@ function App() {
 
   return (
     <div className="aether-app">
+      <nav className="view-tabs">
+        {[["project", "프로젝트"], ["review", "검수"], ["report", "판정/리포트"]].map(([v, label]) => (
+          <button key={v} className={view === v ? "tab active" : "tab"}
+            onClick={() => setView(v)}>{label}</button>
+        ))}
+      </nav>
+
+      {view === "project" && (
+        <ProjectView uploads={uploads} setUploads={setUploads} onJobComplete={handleJobComplete} />
+      )}
+
+      {view === "review" && (
+      <>
       {/* 1. Header */}
       <header className="aether-header">
         <div className="header-logo">
@@ -1310,6 +1291,8 @@ function App() {
         </section>
 
       </div>
+      </>
+      )}
     </div>
   );
 }

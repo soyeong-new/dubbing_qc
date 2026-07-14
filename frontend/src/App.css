@@ -1092,3 +1092,25 @@ body {
 .media-role-tabs button:hover:not(.active) {
   color: var(--text-main);
 }
+
+.view-tabs { display: flex; gap: 8px; margin-bottom: 16px; }
+.view-tabs .tab { padding: 8px 20px; border-radius: 8px; background: transparent;
+  border: 1px solid #333; color: #aaa; cursor: pointer; }
+.view-tabs .tab.active { background: #1e2530; color: #fff; border-color: #4a9eff; }
+.project-view { max-width: 720px; margin: 40px auto; }
+.title-input { width: 100%; padding: 12px; margin-bottom: 16px; background: #12161d;
+  border: 1px solid #333; border-radius: 8px; color: #fff; }
+.upload-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.upload-slot { display: flex; flex-direction: column; gap: 6px; padding: 16px;
+  border: 1px dashed #444; border-radius: 10px; cursor: pointer; }
+.upload-slot.done { border-color: #3ddc84; border-style: solid; }
+.slot-label { font-size: 13px; color: #8fa1b8; }
+.slot-file { font-size: 14px; color: #fff; }
+.progress-panel { margin: 20px 0; }
+.progress-bar { height: 8px; background: #1e2530; border-radius: 4px; margin-top: 8px; }
+.progress-fill { height: 100%; background: #4a9eff; border-radius: 4px; transition: width .5s; }
+.start-btn { margin-top: 20px; width: 100%; padding: 14px; border-radius: 10px;
+  background: #4a9eff; color: #fff; border: none; font-size: 16px; cursor: pointer; }
+.start-btn:disabled { background: #2a3340; color: #667; cursor: not-allowed; }
+.error-banner { margin: 16px 0; padding: 12px; border-radius: 8px;
+  background: #3a1c1c; color: #ff8a8a; }
