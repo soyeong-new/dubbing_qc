@@ -86,3 +86,6 @@ def test_reverdict_excluding_high_finding_lifts_fail(client, tmp_path):
 def test_removed_endpoints_are_gone(client):
     assert client.get("/api/qc/mock-data").status_code == 404
     assert client.post("/api/qc/translate", json={"segments": []}).status_code == 404
+    assert client.post("/api/qc/transcribe", json={"audio_path": "x"}).status_code == 404
+    assert client.post("/api/qc/process", json={}).status_code == 404
+    assert client.post("/api/qc/upload-video").status_code == 404

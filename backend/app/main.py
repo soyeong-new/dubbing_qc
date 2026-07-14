@@ -2,7 +2,6 @@ import os
 import csv
 import io
 import uuid
-import asyncio
 
 # .env 로더 — 기존 코드 그대로 유지
 dotenv_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", ".env"))
@@ -71,8 +70,10 @@ async def upload_media(file: UploadFile = File(...), role: str = "dubbed"):
         subprocess.run(["ffmpeg", "-i", media_path, "-vn", "-acodec", "pcm_s16le",
                         "-ar", "16000", "-ac", "1", "-y", audio_path],
                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        # NOTE: 저레이트 리샘플 금지 — 안티앨리어싱 필터가 음성 에너지를 제거함.
-        # 시각화용 다운샘플은 아래 max-per-bin으로 수행.
+        # NOTE: 저레이트로 직접 리샘플하지 말 것 — ffmpeg가 리샘플 시 적용하는
+        # 안티앨리어싱 저역통과 필터가 새 나이퀴스트 주파수보다 높은 대역에 있는
+        # 음성 에너지 대부분을 제거해 파형이 거의 무음으로 보이게 만든다.
+        # 시각화용 다운샘플은 위 16kHz 원본에서 아래 max-per-bin으로 수행한다.
         subprocess.run(["ffmpeg", "-i", media_path, "-f", "s16le", "-ac", "1",
                         "-ar", "16000", "-y", raw_audio_path],
                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
@@ -88,7 +89,10 @@ async def upload_media(file: UploadFile = File(...), role: str = "dubbed"):
                     chunk = samples[i:i + bin_size]
                     if chunk:
                         peaks.append(round(max(abs(s) for s in chunk) / 32768.0, 3))
-            os.remove(raw_audio_path)
+            try:
+                os.remove(raw_audio_path)
+            except Exception:
+                pass
         return {"success": True, "role": role, "filename": file.filename,
                 "audio_path": audio_path, "media_path": media_path, "waveform": peaks}
     except Exception as e:
