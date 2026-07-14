@@ -28,3 +28,6 @@ __pycache__/
 *.pyo
 *.pyd
 .pytest_cache/
+
+# Runtime data (reviewer feedback JSONL — operational data, not source)
+backend/data/
