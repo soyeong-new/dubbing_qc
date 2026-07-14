@@ -1,0 +1,14 @@
+# 판정 임계값 설정 — 운영하며 조정
+deduction:            # finding 1건당 감점
+  high: 15
+  medium: 8
+  low: 3
+mos_thresholds:       # 100세그먼트당 감점률 상한 → MOS
+  5: 5
+  4: 15
+  3: 35
+  2: 60
+  # 60 초과 → 1
+verdict:
+  pass_min_mos: 4       # 전 축 이 값 이상이면 통과
+  conditional_min_mos: 3  # 최저 축이 이 값이면 조건부 통과
