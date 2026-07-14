@@ -1,6 +1,8 @@
 from pydantic import BaseModel, Field
 from typing import List, Optional, Dict, Literal
 
+# v1 파이프라인에서는 사용하지 않지만, context.py/localization.py/voice_qc.py
+# (플랜상 삭제하지 않고 보존하는 미연동 엔진 파일들)가 여전히 참조한다.
 class ScriptSegment(BaseModel):
     id: str = Field(..., description="Segment ID")
     start_time: float = Field(..., description="Start time in seconds")
@@ -8,25 +10,6 @@ class ScriptSegment(BaseModel):
     speaker: str = Field(..., description="Speaker identifier")
     original_text: str = Field(..., description="Original Korean script line")
     translated_text: str = Field(..., description="English translated script line")
-
-class QCRequest(BaseModel):
-    video_url: Optional[str] = Field(None, description="Optional path or URL to video file")
-    audio_path: Optional[str] = Field(None, description="Optional path to extracted audio file on server")
-    segments: List[ScriptSegment] = Field(..., description="List of script segments to analyze")
-    use_mock: bool = Field(True, description="Whether to use mock data for testing")
-
-class QCStats(BaseModel):
-    total_findings: int
-    high_severity: int
-    medium_severity: int
-    low_severity: int
-    localization_issues: int
-    voice_issues: int
-
-class QCResponse(BaseModel):
-    overall_score: int = Field(..., description="Quality Score from 0 to 100")
-    stats: QCStats = Field(..., description="Summary statistics of findings")
-    findings: List["QCFinding"] = Field(..., description="List of detected QC issues")
 
 
 AXES = ["음질", "감정 표현", "싱크 정확도", "자연스러움", "언어 적합성"]
@@ -103,6 +86,3 @@ class FeedbackEntry(BaseModel):
     final_text: str = ""
     chosen_persona: str = ""
     timestamp: str = ""
-
-
-QCResponse.model_rebuild()

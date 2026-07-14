@@ -1,4 +1,4 @@
-import React, { useState, useRef } from "react";
+import React, { useState, useRef, useEffect } from "react";
 import { uploadMedia, runQC, getJob } from "../api";
 
 const SLOTS = [
@@ -20,6 +20,13 @@ export default function ProjectView({ uploads, setUploads, onJobComplete }) {
   const [progress, setProgress] = useState(null);
   const [error, setError] = useState(null);
   const pollRef = useRef(null);
+
+  // 탭 전환 등으로 컴포넌트가 언마운트돼도 폴링이 계속 돌지 않도록 정리한다
+  useEffect(() => {
+    return () => {
+      if (pollRef.current) clearInterval(pollRef.current);
+    };
+  }, []);
 
   const handleFile = async (role, file) => {
     if (!file) return;
@@ -53,7 +60,7 @@ export default function ProjectView({ uploads, setUploads, onJobComplete }) {
         if (job.status === "done") {
           clearInterval(pollRef.current);
           setRunning(false);
-          onJobComplete(job_id, job.result);
+          onJobComplete(job_id, job.result, movieTitle || "untitled");
         } else if (job.status === "error") {
           clearInterval(pollRef.current);
           setRunning(false);

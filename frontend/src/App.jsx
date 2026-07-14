@@ -25,56 +25,43 @@ function App() {
   });
 
   const [activeSegmentId, setActiveSegmentId] = useState(null);
-  const [filter, setFilter] = useState("all"); 
-  const [severityFilter, setSeverityFilter] = useState("all"); 
-  const [isAnalyzing, setIsAnalyzing] = useState(false);
-  const [backendStatus, setBackendStatus] = useState("checking");
-  const [analysisSource, setAnalysisSource] = useState(null); // "gemini" | "local"
+  const [filter, setFilter] = useState("all");
+  const [severityFilter, setSeverityFilter] = useState("all");
   const [analysisError, setAnalysisError] = useState(null);
-  
+
   // Video & audio states
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
-  const [duration, setDuration] = useState(10.0); 
+  const [duration, setDuration] = useState(10.0);
   const [originalVideoSrc, setOriginalVideoSrc] = useState(null);
   const [dubbedVideoSrc, setDubbedVideoSrc] = useState("https://assets.mixkit.co/videos/preview/mixkit-cyberpunk-city-street-at-night-40134-large.mp4");
   const [activeVideoRole, setActiveVideoRole] = useState("dubbed");
-  
+
   // File names for display
   const [videoFileName, setVideoFileName] = useState("cyberpunk_city.mp4 (기본 샘플)");
-  const [krFileName, setKrFileName] = useState("cyberpunk_kr.srt (기본 샘플)");
-  const [enFileName, setEnFileName] = useState("cyberpunk_en.srt (기본 샘플)");
-
-  // Temporary raw SRT arrays for alignment
-  const [rawKrSegments, setRawKrSegments] = useState([]);
-  const [rawEnSegments, setRawEnSegments] = useState([]);
 
   // Real waveform & backend audio path states
   const [waveformPeaks, setWaveformPeaks] = useState([]);
   const [backendAudioPath, setBackendAudioPath] = useState(null);
   const [uploadingVideo, setUploadingVideo] = useState(false);
 
-  // STT Transcription & AI Translation states
+  // Original media (Review 탭에서 원본 재생용 — QC 실행과는 무관)
   const [originalMediaName, setOriginalMediaName] = useState("선택되지 않음");
   const [originalAudioPath, setOriginalAudioPath] = useState(null);
   const [uploadingOriginal, setUploadingOriginal] = useState(false);
-  const [isTranscribing, setIsTranscribing] = useState(false);
-  const [isTranslating, setIsTranslating] = useState(false);
 
   const videoRef = useRef(null);
   const canvasRef = useRef(null);
   const animationRef = useRef(null);
   const videoInputRef = useRef(null);
-  const krInputRef = useRef(null);
-  const enInputRef = useRef(null);
   const originalInputRef = useRef(null);
 
-  // 1. Job completion handler — bridges the Project tab's async QC job
-  // result into the existing review-dashboard state (segments/findings/stats)
-  // so the review view can be reused as-is, then switches to the review tab.
-  const handleJobComplete = (id, result) => {
+  // 1. Job completion handler — 백엔드 QC 잡의 결과(QCResult)를 검수/리포트 뷰
+  // 상태로 반영한다. 여기서 옮겨지는 findings/segments는 실제 백엔드 파이프라인
+  // 산출물이며, 클라이언트 측에서 새로 생성/변형되지 않는다.
+  const handleJobComplete = (id, result, movieTitle) => {
     setJobId(id);
-    setQcResult(result);
+    setQcResult({ ...result, movie_title: movieTitle || "untitled" });
     setFindings(result.findings);
     // AlignedPair → 기존 세그먼트 상태로 변환 (검수 뷰 재사용)
     setSegments(result.pairs.map((p) => ({
@@ -87,107 +74,6 @@ function App() {
     })));
     updateStats(result.findings);
     setView("review");
-  };
-
-  // Helper: Normalize SRT Time format "00:00:01,000" to seconds
-  const normalizeSRTTime = (timeStr) => {
-    const parts = timeStr.trim().split(":");
-    if (parts.length < 3) return 0;
-    const hrs = parseInt(parts[0], 10);
-    const mins = parseInt(parts[1], 10);
-    const secsParts = parts[2].split(",");
-    const secs = parseInt(secsParts[0], 10);
-    const ms = secsParts[1] ? parseInt(secsParts[1], 10) / 1000 : 0;
-    return hrs * 3600 + mins * 60 + secs + ms;
-  };
-
-  // Helper: Parse raw SRT text into subtitle line objects
-  const parseSRT = (text) => {
-    const blocks = text.trim().split(/\r?\n\r?\n/);
-    return blocks.map((block, index) => {
-      const lines = block.split(/\r?\n/);
-      if (lines.length < 3) return null;
-      
-      const timeMatch = lines[1].match(/(\d{2}:\d{2}:\d{2},\d{3})\s*-->\s*(\d{2}:\d{2}:\d{2},\d{3})/);
-      if (!timeMatch) return null;
-      
-      const start_time = normalizeSRTTime(timeMatch[1]);
-      const end_time = normalizeSRTTime(timeMatch[2]);
-      
-      let dialogue = lines.slice(2).join(" ");
-      let speaker = "등장인물";
-      
-      const speakerMatch = dialogue.match(/^\[?([^:\]]+)\]?:\s*(.*)$/);
-      if (speakerMatch) {
-        speaker = speakerMatch[1].trim();
-        dialogue = speakerMatch[2].trim();
-      }
-      
-      return {
-        id: `srt_${index}`,
-        start_time,
-        end_time,
-        speaker,
-        text: dialogue
-      };
-    }).filter(Boolean);
-  };
-
-  // Helper: Align Korean and English scripts based on time overlap
-  const alignScripts = (krList, enList) => {
-    if (krList.length === 0 && enList.length === 0) return [];
-    
-    if (krList.length > 0 && enList.length === 0) {
-      return krList.map(kr => ({
-        id: kr.id,
-        start_time: kr.start_time,
-        end_time: kr.end_time,
-        speaker: kr.speaker === "dubbed" ? "인물" : kr.speaker,
-        original_text: kr.text,
-        translated_text: ""
-      }));
-    }
-    
-    if (enList.length > 0 && krList.length === 0) {
-      return enList.map(en => ({
-        id: en.id,
-        start_time: en.start_time,
-        end_time: en.end_time,
-        speaker: en.speaker === "dubbed" ? "인물" : en.speaker,
-        original_text: "",
-        translated_text: en.text
-      }));
-    }
-
-    return krList.map((kr, idx) => {
-      // Find matching English line by time overlap (tolerance: 3.0s)
-      let matchedEn = enList.find(en => 
-        Math.abs(en.start_time - kr.start_time) < 3.0
-      );
-      
-      // Fallback: index-based match if timecode match fails
-      if (!matchedEn && enList[idx]) {
-        matchedEn = enList[idx];
-      }
-      
-      const enText = matchedEn ? matchedEn.text : "";
-      const enSpeaker = matchedEn ? matchedEn.speaker : "";
-      
-      // Select speaker name: prefer Korean speaker name, filter out "등장인물", "인물", and "dubbed"
-      let speaker = kr.speaker;
-      if (speaker === "등장인물" || speaker === "인물" || speaker === "dubbed" || !speaker) {
-        speaker = (enSpeaker && enSpeaker !== "등장인물" && enSpeaker !== "dubbed") ? enSpeaker : "인물";
-      }
-      
-      return {
-        id: kr.id,
-        start_time: kr.start_time,
-        end_time: kr.end_time,
-        speaker: speaker,
-        original_text: kr.text,
-        translated_text: enText
-      };
-    });
   };
 
   // 2. File Upload Handlers
@@ -226,70 +112,6 @@ function App() {
       } finally {
         setUploadingOriginal(false);
       }
-    }
-  };
-
-  const handleTranscribe = async () => {
-    if (!originalAudioPath) return;
-    setIsTranscribing(true);
-    try {
-      const res = await fetch("http://localhost:8000/api/qc/transcribe", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ audio_path: originalAudioPath }),
-      });
-      if (!res.ok) throw new Error(`서버 응답 ${res.status}`);
-      const data = await res.json();
-      if (Array.isArray(data)) {
-        // Convert to the raw-KR shape alignScripts expects, and re-align against
-        // any English subtitles already loaded, instead of overwriting segments
-        // outright (which used to wipe out previously loaded EN translations).
-        const krList = data.map(s => ({
-          id: s.id,
-          start_time: s.start_time,
-          end_time: s.end_time,
-          speaker: s.speaker,
-          text: s.original_text
-        }));
-        setRawKrSegments(krList);
-        const merged = alignScripts(krList, rawEnSegments);
-        setSegments(merged);
-        setKrFileName("[AI 전사 완료] ko_transcript.json");
-        runQCAnalysis(merged, false);
-      } else {
-        throw new Error("전사 결과 형식이 올바르지 않습니다.");
-      }
-    } catch (err) {
-      console.error("Transcription failed:", err);
-      setAnalysisError(`AI 전사(STT) 실패: ${err.message}`);
-    } finally {
-      setIsTranscribing(false);
-    }
-  };
-
-  const handleTranslate = async () => {
-    if (segments.length === 0) return;
-    setIsTranslating(true);
-    try {
-      const res = await fetch("http://localhost:8000/api/qc/translate", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ segments }),
-      });
-      if (!res.ok) throw new Error(`서버 응답 ${res.status}`);
-      const data = await res.json();
-      if (Array.isArray(data)) {
-        setSegments(data);
-        setEnFileName("[AI 번역 완료] en_translation.srt");
-        runQCAnalysis(data, false);
-      } else {
-        throw new Error("번역 결과 형식이 올바르지 않습니다.");
-      }
-    } catch (err) {
-      console.error("Translation failed:", err);
-      setAnalysisError(`AI 번역 실패: ${err.message}`);
-    } finally {
-      setIsTranslating(false);
     }
   };
 
@@ -333,266 +155,20 @@ function App() {
     }
   };
 
-  const handleKrUpload = (e) => {
-    const file = e.target.files[0];
-    if (file) {
-      const reader = new FileReader();
-      reader.onload = (event) => {
-        const text = event.target.result;
-        
-        if (file.name.endsWith(".json")) {
-          try {
-            const parsed = JSON.parse(text);
-            if (Array.isArray(parsed) && parsed.length > 0) {
-              setSegments(parsed);
-              setKrFileName(file.name);
-              setEnFileName("JSON 파일 내장됨");
-              runQCAnalysis(parsed, backendStatus === "standalone");
-            }
-          } catch (err) {
-            alert("JSON 파싱 에러");
-          }
-        } else if (file.name.endsWith(".srt")) {
-          const parsedSRT = parseSRT(text);
-          setRawKrSegments(parsedSRT);
-          setKrFileName(file.name);
-          
-          const aligned = alignScripts(parsedSRT, rawEnSegments);
-          setSegments(aligned);
-          runQCAnalysis(aligned, backendStatus === "standalone");
-        }
-      };
-      reader.readAsText(file);
-    }
-  };
-
-  const handleEnUpload = (e) => {
-    const file = e.target.files[0];
-    if (file) {
-      const reader = new FileReader();
-      reader.onload = (event) => {
-        const text = event.target.result;
-        const parsedSRT = parseSRT(text);
-        setRawEnSegments(parsedSRT);
-        setEnFileName(file.name);
-        
-        const aligned = alignScripts(rawKrSegments, parsedSRT);
-        setSegments(aligned);
-        runQCAnalysis(aligned, backendStatus === "standalone");
-      };
-      reader.readAsText(file);
-    }
-  };
-
-  // 3. Core QC Analyzer (API or Standalone JS engine)
-  // knownConnected lets a caller assert connectivity it just confirmed itself
-  // (e.g. right after a successful fetch), instead of relying on the
-  // `backendStatus` state var, which may still hold its pre-update value here
-  // due to React closures when called synchronously after setBackendStatus().
-  const runQCAnalysis = async (currentSegments, forceStandalone = false, knownConnected = null) => {
-    if (currentSegments.length === 0) return;
-    setIsAnalyzing(true);
-    setAnalysisError(null);
-
-    const isBackendConnected = knownConnected !== null ? knownConnected : backendStatus === "connected";
-
-    if (isBackendConnected && !forceStandalone) {
-      try {
-        const res = await fetch("http://localhost:8000/api/qc/process", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            segments: currentSegments,
-            audio_path: backendAudioPath,
-            use_mock: false
-          })
-        });
-        if (!res.ok) throw new Error(`Backend returned ${res.status}`);
-        const data = await res.json();
-        if (!Array.isArray(data.findings)) throw new Error("Malformed response: missing findings");
-        setFindings(data.findings);
-        setOverallScore(data.overall_score);
-        updateStats(data.findings);
-        setAnalysisSource("gemini");
-        setIsAnalyzing(false);
-        return;
-      } catch (err) {
-        console.error("Failed to fetch analysis, using local analyzer:", err);
-        setAnalysisError(`AI 백엔드 검수 실패 (${err.message}). 로컬 규칙 기반 엔진으로 대체합니다.`);
-      }
-    }
-
-    // Local JS Analyzer (For Standalone or local fallback)
-    setAnalysisSource("local");
-    setTimeout(() => {
-      const localFindings = [];
-      
-      currentSegments.forEach((seg, index) => {
-        const textKr = seg.original_text || "";
-        const textEn = (seg.translated_text || "").trim();
-
-        // Check 0: Missing Translation
-        if (!textEn) {
-          localFindings.push({
-            id: `loc_${seg.id}_missing`,
-            segment_id: seg.id,
-            category: "localization",
-            severity: "high",
-            issue_type: "번역 누락",
-            start_time: seg.start_time,
-            end_time: seg.end_time,
-            speaker: seg.speaker,
-            description: "영문 번역 대사가 누락되었습니다. 더빙 오디오 녹음 및 싱크 매칭을 하려면 스크립트를 먼저 채워야 합니다.",
-            original_text: seg.original_text,
-            current_translation: "",
-            recommendation: "AI recommended correction line.",
-            confidence: 1.0
-          });
-          return;
-        }
-
-        // Loc 1: Honorifics
-        if (
-          (textKr.includes("형") || textKr.includes("누나") || textKr.includes("오빠") || textKr.includes("부장")) && 
-          (textEn.toLowerCase().includes("brother") || textEn.toLowerCase().includes("sister") || textEn.toLowerCase().includes("director"))
-        ) {
-          localFindings.push({
-            id: `loc_${seg.id}_honorific`,
-            segment_id: seg.id,
-            category: "localization",
-            severity: "medium",
-            issue_type: "문화적 정서 차이",
-            start_time: seg.start_time,
-            end_time: seg.end_time,
-            speaker: seg.speaker,
-            description: "한국어 친족 호칭(형/누나/오빠)이나 직책이 영어 'brother', 'sister' 등으로 직역되어 대화 환경에서 다소 부자연스럽게 들립니다. 자연스러운 대안 호칭을 권장합니다.",
-            original_text: seg.original_text,
-            current_translation: seg.translated_text,
-            recommendation: seg.translated_text.replace(/brother/i, "man").replace(/brother/g, "man").replace(/Brother/g, "Hey"),
-            confidence: 0.94
-          });
-        }
-
-        // Loc 2: Literal Translation of "눈치"
-        if (textKr.includes("눈치") && (textEn.toLowerCase().includes("eyes") || textEn.toLowerCase().includes("look"))) {
-          localFindings.push({
-            id: `loc_${seg.id}_nunchi`,
-            segment_id: seg.id,
-            category: "localization",
-            severity: "high",
-            issue_type: "번역 오류",
-            start_time: seg.start_time,
-            end_time: seg.end_time,
-            speaker: seg.speaker,
-            description: "'눈치 보다'라는 고유 정서 표현이 눈(eyes/look)으로 직접 직역되었습니다. 'walking on eggshells'(조심조심 행동하다) 또는 'read the room'(상황을 파악하다) 등으로 의역이 필요합니다.",
-            original_text: seg.original_text,
-            current_translation: seg.translated_text,
-            recommendation: "Stop walking on eggshells and just speak.",
-            confidence: 0.91
-          });
-        }
-
-        // Loc 3: Translation Mistake "어이가 없네" -> "no kidney"
-        if (textKr.includes("어이가 없네") && textEn.toLowerCase().includes("kidney")) {
-          localFindings.push({
-            id: `loc_${seg.id}_kidney`,
-            segment_id: seg.id,
-            category: "localization",
-            severity: "high",
-            issue_type: "번역 오류",
-            start_time: seg.start_time,
-            end_time: seg.end_time,
-            speaker: seg.speaker,
-            description: "관용구 '어이가 없네'(황당하다)의 '어이'가 인체 장기인 신장(kidney)으로 치명적인 기계 번역 오역이 일어났습니다. 'ridiculous'(황당한)로 즉시 변경해야 합니다.",
-            original_text: seg.original_text,
-            current_translation: seg.translated_text,
-            recommendation: "This is ridiculous.",
-            confidence: 0.99
-          });
-        }
-
-        // Loc 4: Rice translation
-        if (textKr.includes("밥") && textEn.toLowerCase().includes("rice")) {
-          localFindings.push({
-            id: `loc_${seg.id}_rice`,
-            segment_id: seg.id,
-            category: "localization",
-            severity: "low",
-            issue_type: "문화적 정서 차이",
-            start_time: seg.start_time,
-            end_time: seg.end_time,
-            speaker: seg.speaker,
-            description: "'밥 먹었어?'는 안부 인사 의미의 한국적 관용구입니다. 이를 문자 그대로 'eat rice'로 번역하면 어색하므로 일상적 인사(Have you eaten?)로 의역을 추천합니다.",
-            original_text: seg.original_text,
-            current_translation: seg.translated_text,
-            recommendation: "Have you eaten?",
-            confidence: 0.88
-          });
-        }
-
-        // Voice 1: Sync pacing overflow
-        const duration = seg.end_time - seg.start_time;
-        const words = textEn.split(" ").length;
-        if (words / duration > 4.5) {
-          localFindings.push({
-            id: `voice_${seg.id}_sync_pacing`,
-            segment_id: seg.id,
-            category: "voice",
-            severity: "high",
-            issue_type: "싱크 오류",
-            start_time: seg.start_time,
-            end_time: seg.end_time,
-            speaker: seg.speaker,
-            description: `자막 지속 시간 대비 발화 속도 초과 (초당 ${(words / duration).toFixed(1)} 단어). 성우가 너무 급하게 대사를 말해야 해 입모양(Lip-sync)이 깨집니다. 대사 축약이 필요합니다.`,
-            original_text: seg.original_text,
-            current_translation: seg.translated_text,
-            recommendation: "Shorten phrase length.",
-            confidence: 0.95
-          });
-        }
-
-        // Voice 2: Timbre consistency drift
-        if (index === 1) {
-          localFindings.push({
-            id: `voice_${seg.id}_consistency`,
-            segment_id: seg.id,
-            category: "voice",
-            severity: "medium",
-            issue_type: "음색 일관성 오류",
-            start_time: seg.start_time,
-            end_time: seg.end_time,
-            speaker: seg.speaker,
-            description: "성우 음색 불일치 감지. 주파수 분석 결과 이전 대사에 설정된 캐릭터의 표준 주파수 프로필에서 23%의 음색 변조 및 이질감이 감지되었습니다.",
-            original_text: seg.original_text,
-            current_translation: seg.translated_text,
-            recommendation: "Recalibrate vocal model or re-record.",
-            confidence: 0.84
-          });
-        }
-      });
-
-      setFindings(localFindings);
-      
-      const highCnt = localFindings.filter(f => f.severity === "high").length;
-      const medCnt = localFindings.filter(f => f.severity === "medium").length;
-      const lowCnt = localFindings.filter(f => f.severity === "low").length;
-      const score = Math.max(100 - (highCnt * 15 + medCnt * 8 + lowCnt * 3), 0);
-      setOverallScore(score);
-      
-      updateStats(localFindings);
-      setIsAnalyzing(false);
-    }, 1200);
-  };
-
   const updateStats = (currentFindings) => {
+    const highCnt = currentFindings.filter(f => f.severity === "high").length;
+    const medCnt = currentFindings.filter(f => f.severity === "medium").length;
+    const lowCnt = currentFindings.filter(f => f.severity === "low").length;
     setStats({
       total: currentFindings.length,
-      high: currentFindings.filter(f => f.severity === "high").length,
-      medium: currentFindings.filter(f => f.severity === "medium").length,
-      low: currentFindings.filter(f => f.severity === "low").length,
+      high: highCnt,
+      medium: medCnt,
+      low: lowCnt,
       localization: currentFindings.filter(f => f.category === "localization").length,
       voice: currentFindings.filter(f => f.category === "voice").length
     });
+    // 게이지 표시용 참고 점수 — 공식 판정은 Report 탭의 5축 MOS/판정을 따른다
+    setOverallScore(Math.max(100 - (highCnt * 15 + medCnt * 8 + lowCnt * 3), 0));
   };
 
   // 4. Script Editing
@@ -856,31 +432,19 @@ function App() {
           </div>
         </div>
 
-        {/* File upload panel with original/dubbed media and dual SRT inputs */}
+        {/* 재생용 미디어 등록 (Review 탭 전용 — QC 실행은 프로젝트 탭에서 이미 완료된 잡의 결과다) */}
         <div className="header-file-panel">
           {/* 1. Original KR Media */}
           <div className="file-uploader-box">
             <span className="file-label" title={originalMediaName}>🎙️ 원본 영상/음성 (KR): {originalMediaName}</span>
-            <div className="button-group-row">
-              <button className="btn-file-select" onClick={() => originalInputRef.current.click()} disabled={uploadingOriginal}>
-                {uploadingOriginal ? "업로드 중..." : (originalAudioPath ? "등록 완료 ✓" : "미디어 등록")}
-              </button>
-              {originalAudioPath && (
-                <button 
-                  className={`btn-action-ai ${isTranscribing ? "loading" : ""}`}
-                  onClick={handleTranscribe} 
-                  disabled={isTranscribing}
-                  title="한국어 음성을 자막으로 변환합니다."
-                >
-                  {isTranscribing ? "STT..." : "AI 전사"}
-                </button>
-              )}
-            </div>
-            <input 
-              type="file" 
-              ref={originalInputRef} 
-              style={{ display: "none" }} 
-              accept="video/*,audio/*" 
+            <button className="btn-file-select" onClick={() => originalInputRef.current.click()} disabled={uploadingOriginal}>
+              {uploadingOriginal ? "업로드 중..." : (originalAudioPath ? "등록 완료 ✓" : "미디어 등록")}
+            </button>
+            <input
+              type="file"
+              ref={originalInputRef}
+              style={{ display: "none" }}
+              accept="video/*,audio/*"
               onChange={handleOriginalUpload}
             />
           </div>
@@ -891,86 +455,14 @@ function App() {
             <button className="btn-file-select" onClick={() => videoInputRef.current.click()} disabled={uploadingVideo}>
               {uploadingVideo ? "분석 중..." : (backendAudioPath ? "등록 완료 ✓" : "미디어 등록")}
             </button>
-            <input 
-              type="file" 
-              ref={videoInputRef} 
-              style={{ display: "none" }} 
-              accept="video/*,audio/*" 
+            <input
+              type="file"
+              ref={videoInputRef}
+              style={{ display: "none" }}
+              accept="video/*,audio/*"
               onChange={handleVideoUpload}
             />
           </div>
-
-          {/* 3. Korean Subtitle (KR Script) */}
-          <div className="file-uploader-box">
-            <span className="file-label" title={krFileName}>🇰🇷 한국어 자막 (SRT): {krFileName}</span>
-            <div className="button-group-row">
-              <button className="btn-file-select" onClick={() => krInputRef.current.click()}>
-                {krFileName.includes("기본 샘플") ? "자막 불러오기" : "등록 완료 ✓"}
-              </button>
-              {segments.length > 0 && (
-                <button 
-                  className={`btn-action-ai ${isTranslating ? "loading" : ""}`}
-                  onClick={handleTranslate} 
-                  disabled={isTranslating}
-                  title="한국어 자막을 기반으로 영어 더빙 번역을 AI 생성합니다."
-                >
-                  {isTranslating ? "번역 중..." : "AI 번역"}
-                </button>
-              )}
-            </div>
-            <input 
-              type="file" 
-              ref={krInputRef} 
-              style={{ display: "none" }} 
-              accept=".srt,.json" 
-              onChange={handleKrUpload}
-            />
-          </div>
-
-          {/* 4. English Subtitle (EN Script) */}
-          <div className="file-uploader-box">
-            <span className="file-label" title={enFileName}>🇺🇸 영어 자막 (SRT): {enFileName}</span>
-            <button className="btn-file-select" onClick={() => enInputRef.current.click()}>
-              {enFileName.includes("기본 샘플") ? "자막 불러오기" : "등록 완료 ✓"}
-            </button>
-            <input 
-              type="file" 
-              ref={enInputRef} 
-              style={{ display: "none" }} 
-              accept=".srt" 
-              onChange={handleEnUpload}
-            />
-          </div>
-        </div>
-
-        <div className="header-status">
-          <div className={`status-badge ${backendStatus}`}>
-            <span className="pulse-dot"></span>
-            {backendStatus === "connected" ? "AI 백엔드 연결됨" :
-             backendStatus === "standalone" ? "로컬 스탠드얼론 모드" : "엔진 연결 확인 중..."}
-          </div>
-          {analysisSource && (
-            <div className={`status-badge source-${analysisSource}`} title="마지막 검수 결과가 어느 엔진에서 나왔는지 표시합니다.">
-              {analysisSource === "gemini" ? "검수 엔진: Gemini AI" : "검수 엔진: 로컬 규칙 기반 (폴백)"}
-            </div>
-          )}
-          <button
-            className={`reanalyze-btn ${isAnalyzing ? "loading" : ""}`}
-            onClick={() => runQCAnalysis(segments, backendStatus === "standalone")}
-            disabled={isAnalyzing || segments.length === 0}
-            id="reanalyze-btn"
-          >
-            {isAnalyzing ? (
-              <>
-                <span className="spinner"></span> 분석 중...
-              </>
-            ) : (
-              <>
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/></svg>
-                AI 검수 실행
-              </>
-            )}
-          </button>
         </div>
 
         {/* Circular Progress Gauge */}
