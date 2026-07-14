@@ -1,61 +1,58 @@
-from typing import List
-from app.schemas import QCRequest, QCResponse, QCFinding, QCStats
-from app.core.context import ContextEngine
-from app.core.localization import LocalizationEngine
-from app.core.voice_qc import VoiceQCEngine
+from typing import Callable, Optional
+from app.schemas import QCJobInput, QCResult
+from app.providers.base import ModelProvider, get_provider
+from app.core.ingest import load_text_source
+from app.core.alignment import align, assign_scenes, group_by_scene
+from app.core.rule_checks import run_text_checks, check_audio_quality, check_srt_audio_match
+from app.core.judge_panel import run_panel
+from app.core.verdict import load_config, compute_axis_scores, decide
+from app.knowledge.loader import load_knowledge
+
+ProgressFn = Callable[[str, int, int], None]
+
 
 class QCPipeline:
-    def __init__(self):
-        self.context_engine = ContextEngine()
-        self.localization_engine = LocalizationEngine()
-        self.voice_engine = VoiceQCEngine()
+    def __init__(self, provider: Optional[ModelProvider] = None):
+        self.provider = provider
 
-    async def run(self, request: QCRequest) -> QCResponse:
-        # 1. Context extraction
-        context_map = await self.context_engine.analyze_scenes(request.segments)
-        
-        # 2. Localization QC
-        loc_findings = await self.localization_engine.analyze(
-            request.segments, 
-            context_map, 
-            audio_path=request.audio_path,
-            use_mock=request.use_mock
+    async def run(self, job: QCJobInput, on_progress: Optional[ProgressFn] = None) -> QCResult:
+        provider = self.provider or get_provider()
+        notify = on_progress or (lambda stage, d, t: None)
+
+        # ① 텍스트 수집 (SRT 우선, STT 폴백)
+        notify("ingest", 0, 2)
+        korean = await load_text_source("ko", job.kr_srt_path, job.kr_audio_path, provider)
+        notify("ingest", 1, 2)
+        dubbed = await load_text_source("en", job.en_srt_path, None, provider)
+        notify("ingest", 2, 2)
+
+        # ② 정렬 + 씬 배정
+        notify("align", 0, 1)
+        pairs = assign_scenes(align(korean, dubbed))
+        notify("align", 1, 1)
+
+        # ③ 결정론적 룰 체크
+        notify("rules", 0, 1)
+        findings = run_text_checks(pairs)
+        if job.stem_audio_path:
+            findings += check_audio_quality(job.stem_audio_path, pairs)
+            findings += await check_srt_audio_match(pairs, job.stem_audio_path, provider)
+        notify("rules", 1, 1)
+
+        # ④ 페르소나 패널
+        scenes = group_by_scene(pairs)
+        panel_findings = await run_panel(
+            scenes, load_knowledge(), provider,
+            stem_wav_path=job.stem_audio_path,
+            on_progress=lambda d, t: notify("panel", d, t),
         )
-        
-        # 3. Voice QC
-        voice_findings = await self.voice_engine.analyze(
-            request.segments, 
-            context_map, 
-            audio_path=request.audio_path,
-            use_mock=request.use_mock
-        )
-        
-        # Combine all findings
-        all_findings = loc_findings + voice_findings
-        
-        # 4. Compute statistics
-        high_cnt = sum(1 for f in all_findings if f.severity == "high")
-        med_cnt = sum(1 for f in all_findings if f.severity == "medium")
-        low_cnt = sum(1 for f in all_findings if f.severity == "low")
-        loc_cnt = sum(1 for f in all_findings if f.category == "localization")
-        voice_cnt = sum(1 for f in all_findings if f.category == "voice")
-        
-        # Quality score formula (starts at 100, drops by severity weight)
-        # High = -15 pts, Medium = -8 pts, Low = -3 pts
-        deduction = (high_cnt * 15) + (med_cnt * 8) + (low_cnt * 3)
-        overall_score = max(100 - deduction, 0)
-        
-        stats = QCStats(
-            total_findings=len(all_findings),
-            high_severity=high_cnt,
-            medium_severity=med_cnt,
-            low_severity=low_cnt,
-            localization_issues=loc_cnt,
-            voice_issues=voice_cnt
-        )
-        
-        return QCResponse(
-            overall_score=overall_score,
-            stats=stats,
-            findings=all_findings
-        )
+        findings += panel_findings
+
+        # ⑤ 판정
+        notify("verdict", 0, 1)
+        config = load_config()
+        axis_scores = compute_axis_scores(findings, n_pairs=len(pairs), config=config)
+        verdict = decide(axis_scores, findings, config)
+        notify("verdict", 1, 1)
+
+        return QCResult(verdict=verdict, findings=findings, pairs=pairs)
