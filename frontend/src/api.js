@@ -42,7 +42,11 @@ export async function reverdict(jobId, excludedFindingIds) {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ excluded_finding_ids: excludedFindingIds }),
   });
-  return res.json();
+  const body = await res.json();
+  if (!res.ok) {
+    throw new Error(body.detail || "재판정 요청이 실패했습니다.");
+  }
+  return body;
 }
 
 export function exportUrl(jobId) {

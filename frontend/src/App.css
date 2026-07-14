@@ -1159,6 +1159,7 @@ body {
 .report-actions { display: flex; gap: 12px; margin: 24px 0; }
 .export-btn { padding: 10px 20px; border-radius: 8px; background: #1e2a3f;
   color: #4a9eff; border: 1px solid #2a3f5f; cursor: pointer; text-decoration: none; }
+.export-btn:disabled { opacity: 0.5; cursor: not-allowed; }
 @media print {
   .view-tabs, .report-actions { display: none; }
   body { background: #fff; color: #000; }
