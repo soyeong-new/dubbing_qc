@@ -1,3 +1,4 @@
+import asyncio
 import math
 import os
 import struct
@@ -193,7 +194,9 @@ async def check_srt_audio_match(pairs: List[AlignedPair], stem_wav_path: str,
     findings = []
     targets = [p for p in pairs if p.dubbed and p.dubbed.text.strip()][::sample_every]
     for p in targets:
-        clip = extract_clip_fn(stem_wav_path, p.dubbed.start, p.dubbed.end)
+        # extract_clip_fn은 ffmpeg를 동기 호출한다 — asyncio 이벤트 루프를
+        # 막지 않도록 스레드로 넘긴다.
+        clip = await asyncio.to_thread(extract_clip_fn, stem_wav_path, p.dubbed.start, p.dubbed.end)
         heard = await provider.transcribe(clip, lang="en")
         heard_text = " ".join(s.text for s in heard)
         if _token_similarity(p.dubbed.text, heard_text) < 0.4:

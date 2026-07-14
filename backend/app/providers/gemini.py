@@ -1,3 +1,4 @@
+import asyncio
 import os
 import json
 import subprocess
@@ -123,9 +124,13 @@ class GeminiProvider(ModelProvider):
 
     async def transcribe(self, audio_path: str, lang: str) -> List[SegmentText]:
         lang_name = "한국어" if lang == "ko" else "영어"
-        audio_data = _compress_to_mp3(audio_path)
+        audio_data = await asyncio.to_thread(_compress_to_mp3, audio_path)
         model = self._genai.GenerativeModel(MODEL_NAME)
-        response = model.generate_content(
+        # google-generativeai의 generate_content는 동기(blocking) 호출이다.
+        # 스레드로 넘기지 않으면 이 응답을 기다리는 동안 단일 asyncio 이벤트 루프
+        # 전체가 멈춰, 같은 프로세스가 처리해야 할 진행률 폴링 요청까지 응답이 끊긴다.
+        response = await asyncio.to_thread(
+            model.generate_content,
             [{"mime_type": "audio/mp3", "data": audio_data},
              STT_PROMPT.format(lang_name=lang_name)],
             generation_config={"response_mime_type": "application/json"},
@@ -138,8 +143,12 @@ class GeminiProvider(ModelProvider):
         prompt = build_judge_prompt(pairs, persona, knowledge)
         parts = [prompt]
         if audio_clip_path and persona.uses_audio and os.path.exists(audio_clip_path):
-            parts.insert(0, {"mime_type": "audio/mp3", "data": _compress_to_mp3(audio_clip_path)})
-        response = model.generate_content(
+            audio_data = await asyncio.to_thread(_compress_to_mp3, audio_clip_path)
+            parts.insert(0, {"mime_type": "audio/mp3", "data": audio_data})
+        # 동기 SDK 호출을 스레드로 넘겨 이벤트 루프가 다른 요청(진행률 폴링 등)을
+        # 계속 처리할 수 있게 한다 — transcribe()의 동일 주석 참고.
+        response = await asyncio.to_thread(
+            model.generate_content,
             parts, generation_config={"response_mime_type": "application/json"},
         )
         return parse_judge_response(response.text, pairs, persona)

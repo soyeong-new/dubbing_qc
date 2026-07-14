@@ -1,3 +1,4 @@
+import asyncio
 from typing import Callable, Dict, List, Optional
 from app.providers.base import ModelProvider, Persona
 from app.schemas import AlignedPair, QCFinding
@@ -79,7 +80,12 @@ async def run_panel(scenes: Dict[str, List[AlignedPair]], knowledge: str,
             anchors = [(p.dubbed or p.korean) for p in pairs if (p.dubbed or p.korean)]
             if anchors:
                 try:
-                    clip_path = extract_clip(stem_wav_path, anchors[0].start, anchors[-1].end)
+                    # extract_clip은 ffmpeg를 동기 호출한다 — asyncio 이벤트 루프를
+                    # 막지 않도록 스레드로 넘긴다 (그렇지 않으면 이 씬을 처리하는 동안
+                    # 진행률 폴링 등 다른 요청이 전부 멈춘다).
+                    clip_path = await asyncio.to_thread(
+                        extract_clip, stem_wav_path, anchors[0].start, anchors[-1].end
+                    )
                 except Exception as e:
                     print(f"[패널] {scene_id} 오디오 클립 추출 실패, 오디오 없이 진행: {e}")
         for persona in PERSONAS:
