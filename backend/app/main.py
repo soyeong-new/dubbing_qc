@@ -62,21 +62,27 @@ async def upload_media(file: UploadFile = File(...), role: str = "dubbed"):
         return {"success": True, "role": role, "filename": file.filename,
                 "media_path": media_path}
 
-    # 미디어(원본/더빙본/스템): 16kHz mono WAV 추출 + waveform peaks — 기존 로직 그대로
-    audio_filename = f"{role}_{os.path.splitext(safe_filename)[0]}.wav"
-    audio_path = os.path.join(temp_dir, audio_filename)
-    raw_audio_path = os.path.join(temp_dir, f"{role}_{os.path.splitext(safe_filename)[0]}_peaks.raw")
+    # 미디어(원본/더빙본/스템): 16kHz mono WAV 추출 + waveform peaks
+    # NOTE: 출력 파일명에 반드시 media_path와 겹치지 않는 접미사(_16k)를 붙인다.
+    # 원본 업로드 파일명이 이미 .wav로 끝나면(예: 스템 오디오), 단순히 확장자만
+    # 바꿔 붙이는 방식은 media_path와 완전히 같은 경로를 만들어낸다 — 그러면
+    # ffmpeg가 입력과 출력이 같은 파일이라 변환 없이 실패하고, 검증 없이(check=True
+    # 없이) 넘어가면 원본 포맷(예: 24bit/stereo)이 그대로 audio_path로 반환되어
+    # 파이프라인의 16bit mono 검증에서 뒤늦게 깨진다.
+    stem_name = os.path.splitext(safe_filename)[0]
+    audio_path = os.path.join(temp_dir, f"{role}_{stem_name}_16k.wav")
+    raw_audio_path = os.path.join(temp_dir, f"{role}_{stem_name}_peaks.raw")
     try:
         subprocess.run(["ffmpeg", "-i", media_path, "-vn", "-acodec", "pcm_s16le",
                         "-ar", "16000", "-ac", "1", "-y", audio_path],
-                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True)
         # NOTE: 저레이트로 직접 리샘플하지 말 것 — ffmpeg가 리샘플 시 적용하는
         # 안티앨리어싱 저역통과 필터가 새 나이퀴스트 주파수보다 높은 대역에 있는
         # 음성 에너지 대부분을 제거해 파형이 거의 무음으로 보이게 만든다.
         # 시각화용 다운샘플은 위 16kHz 원본에서 아래 max-per-bin으로 수행한다.
         subprocess.run(["ffmpeg", "-i", media_path, "-f", "s16le", "-ac", "1",
                         "-ar", "16000", "-y", raw_audio_path],
-                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True)
         peaks = []
         if os.path.exists(raw_audio_path):
             with open(raw_audio_path, "rb") as f:
