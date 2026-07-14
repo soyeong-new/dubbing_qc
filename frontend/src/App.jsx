@@ -9,6 +9,8 @@ function App() {
   const [jobId, setJobId] = useState(null);
   const [qcResult, setQcResult] = useState(null);
   const [reviewedFindings, setReviewedFindings] = useState({}); // {findingId: {action, finalText}}
+  const [pendingReviews, setPendingReviews] = useState({}); // {findingId: true} while POST in flight
+  const [reviewErrors, setReviewErrors] = useState({}); // {findingId: errorMessage}
   const [segments, setSegments] = useState([]);
   const [findings, setFindings] = useState([]);
   const [overallScore, setOverallScore] = useState(100);
@@ -606,17 +608,35 @@ function App() {
   // 5. Action Handlers
   // 검수 액션: 모든 클릭이 피드백 저장소에 기록된다 (학습 데이터 축적 입구)
   const reviewFinding = async (finding, action, finalText = "", chosenPersona = "") => {
-    await postFeedback({
-      movie: qcResult?.movie_title || "untitled",
-      segment_id: finding.segment_id,
-      korean: finding.original_text,
-      dubbed: finding.current_translation,
-      finding_id: finding.id,
-      reviewer_action: action, // "approved" | "rejected" | "modified"
-      final_text: finalText,
-      chosen_persona: chosenPersona,
+    // 이미 확정됐거나 요청이 진행 중이면 중복 제출을 막는다
+    if (reviewedFindings[finding.id] || pendingReviews[finding.id]) return;
+    setPendingReviews((p) => ({ ...p, [finding.id]: true }));
+    setReviewErrors((e) => {
+      const next = { ...e };
+      delete next[finding.id];
+      return next;
     });
-    setReviewedFindings((r) => ({ ...r, [finding.id]: { action, finalText } }));
+    try {
+      await postFeedback({
+        movie: qcResult?.movie_title || "untitled",
+        segment_id: finding.segment_id,
+        korean: finding.original_text,
+        dubbed: finding.current_translation,
+        finding_id: finding.id,
+        reviewer_action: action, // "approved" | "rejected" | "modified"
+        final_text: finalText,
+        chosen_persona: chosenPersona,
+      });
+      setReviewedFindings((r) => ({ ...r, [finding.id]: { action, finalText } }));
+    } catch (err) {
+      setReviewErrors((e) => ({ ...e, [finding.id]: "저장 실패 — 다시 시도해주세요." }));
+    } finally {
+      setPendingReviews((p) => {
+        const next = { ...p };
+        delete next[finding.id];
+        return next;
+      });
+    }
   };
 
   // 6. Video Sync Time Tracking
@@ -1258,6 +1278,7 @@ function App() {
                       {Object.entries(finding.alternatives || {}).map(([persona, suggestion]) => (
                         <button key={persona} className="alt-chip"
                           title={`${persona}의 수정안 채택`}
+                          disabled={!!pendingReviews[finding.id] || !!reviewedFindings[finding.id]}
                           onClick={() => reviewFinding(finding, "modified", suggestion, persona)}>
                           <span className="alt-persona">{persona}</span>
                           <span className="alt-text">{suggestion}</span>
@@ -1267,6 +1288,9 @@ function App() {
                     <div className="finding-meta">
                       동의 {finding.agreement}/3 · {finding.axis} · {finding.source === "rule" ? "룰 체크" : finding.source.replace("persona:", "")}
                     </div>
+                    {reviewErrors[finding.id] && (
+                      <div className="review-error">{reviewErrors[finding.id]}</div>
+                    )}
                     <div className="review-actions">
                       {reviewedFindings[finding.id] ? (
                         <span className="reviewed-badge">
@@ -1276,9 +1300,11 @@ function App() {
                         </span>
                       ) : (
                         <>
-                          <button className="btn-approve" onClick={() => reviewFinding(finding, "approved")}>승인</button>
-                          <button className="btn-reject" onClick={() => reviewFinding(finding, "rejected")}>반려 (오탐)</button>
-                          <button className="btn-modify" onClick={() => {
+                          <button className="btn-approve" disabled={!!pendingReviews[finding.id]}
+                            onClick={() => reviewFinding(finding, "approved")}>승인</button>
+                          <button className="btn-reject" disabled={!!pendingReviews[finding.id]}
+                            onClick={() => reviewFinding(finding, "rejected")}>반려 (오탐)</button>
+                          <button className="btn-modify" disabled={!!pendingReviews[finding.id]} onClick={() => {
                             const text = window.prompt("최종 영어 대사를 입력하세요:", finding.recommendation);
                             if (text) reviewFinding(finding, "modified", text);
                           }}>직접 수정</button>
