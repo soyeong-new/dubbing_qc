@@ -41,8 +41,13 @@ def job_files(tmp_path):
     return str(en), str(kr), str(stem)
 
 
+def _fake_classify_accent(clip_path):
+    return "us", 0.95
+
+
 async def test_pipeline_end_to_end_with_srt_both(job_files, monkeypatch):
     monkeypatch.setenv("QC_PROVIDER", "mock")
+    monkeypatch.setattr("app.core.accent.classify_accent", _fake_classify_accent)
     en, kr, stem = job_files
     stages = []
     pipeline = QCPipeline(provider=get_provider())
@@ -67,6 +72,7 @@ async def test_pipeline_without_stem_skips_audio_checks(job_files, monkeypatch):
 
 async def test_pipeline_includes_sensitive_word_findings(job_files, monkeypatch, tmp_path):
     monkeypatch.setenv("QC_PROVIDER", "mock")
+    monkeypatch.setattr("app.core.accent.classify_accent", _fake_classify_accent)
     en, kr, stem = job_files
     # 사전에 확실히 걸리는 단어를 영어 SRT에 심는다
     sensitive_srt = tmp_path / "en_sensitive.srt"
@@ -85,6 +91,7 @@ async def test_pipeline_includes_sensitive_word_findings(job_files, monkeypatch,
 
 async def test_pipeline_passes_kr_audio_path_to_panel_for_director(job_files, monkeypatch):
     monkeypatch.setenv("QC_PROVIDER", "mock")
+    monkeypatch.setattr("app.core.accent.classify_accent", _fake_classify_accent)
     en, kr, stem = job_files
     pipeline = QCPipeline(provider=get_provider())
     # kr_audio_path 없이도(한국어 SRT만 제공) 예외 없이 완료되어야 한다 —
