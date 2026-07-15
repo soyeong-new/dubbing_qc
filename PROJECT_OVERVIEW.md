@@ -251,6 +251,54 @@ class FeedbackEntry(BaseModel):
 | 신규 의존성 | 억양 분류 모델(예: SpeechBrain CommonAccent) 하나만 추가 — LLM이 아니라 SER과 동류의 전용 소형 분류 모델. 화자 분리·화자 임베딩·Demucs 음원분리는 전부 불필요한 것으로 결론 |
 | 스코프 제외 | 더빙 생산 파이프라인(`AI_Dubbing)auto_proj`)과의 통합은 두 프로젝트 모두 미완성이라 의도적으로 보류 — 데이터 계약만 맞으면 나중에 연결 가능하도록 독립 설계 |
 
+**v2 파이프라인 흐름 (설계, 미구현):**
+
+```mermaid
+flowchart TD
+    kr_audio["한국어 원본 음성"] --> ingest
+    kr_srt["한국어 SRT (선택)"] --> ingest
+    en_srt["영어 SRT (필수)"] --> ingest
+    stem["영어 다이얼로그 스템 (필수)"] --> rule_check
+    stem --> accent_check
+
+    subgraph Ingest_Align["1단계: Ingest + Alignment (씬/배치 배정 포함)"]
+        ingest["Ingest: 한(SRT우선/STT폴백) + 영(SRT고정)"]
+        ingest --> align["Alignment: 타임코드 정렬 + 침묵기준 배치(크기상한)"]
+    end
+
+    subgraph DetModel["2단계: 결정론적 계산 + 독립 분류 모델 (LLM 아님)"]
+        align --> rule_check["음질: 클리핑/SNR/드롭아웃 (스템 직접 분석)"]
+        align --> sync_check["싱크 정확도: 원본↔더빙 타임코드 격차"]
+        accent_check["억양 적합성: 세그먼트별 독립 분류 (미국식 표준 부합)"]
+    end
+
+    subgraph Panel["3단계: 3-페르소나 LLM Judge 패널 (씬 단위, 변경 없음)"]
+        align --> panel_run["3-Persona Judge"]
+        panel_run --> expert["문화전문가 (언어 적합성)"]
+        panel_run --> native["원어민 (자연스러움)"]
+        panel_run --> director["연출가 (감정 표현) — 원본+더빙 오디오 동시 청취"]
+        kr_audio -.원본 오디오 클립.-> director
+    end
+
+    subgraph SensitivePass["별도 패스: 민감어·욕설 (페르소나 아님, 대본 전체를 큰 청크로)"]
+        en_srt --> dict_filter["사전 1차 필터"]
+        dict_filter --> llm_sensitive["LLM 정밀 판단 (씬 단위 아닌 대본 통짜 배치)"]
+    end
+
+    expert --> merger["Merger"]
+    native --> merger
+    director --> merger
+
+    rule_check --> verdict["Verdict Engine: MOS 7축 산출"]
+    sync_check --> verdict
+    accent_check --> verdict
+    merger --> verdict
+    llm_sensitive --> content_flags["콘텐츠 플래그 섹션 (MOS 점수 아님, 별도 표시)"]
+
+    verdict --> dashboard["대시보드"]
+    content_flags --> dashboard
+```
+
 ---
 
 ## 📈 피드백 축적 및 진화 로드맵
