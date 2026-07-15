@@ -32,8 +32,13 @@ export default function ReportView({ result, jobId, findings, reviewed }) {
       setReverdicting(false);
     }
   };
-  // 검수자가 반려(오탐)한 finding 제외 = 확정 지시서
-  const confirmed = findings.filter((f) => reviewed[f.id]?.action !== "rejected");
+  // 검수자가 반려(오탐)한 finding 제외 = 확정 지시서 (민감어는 별도 섹션이라 제외)
+  const confirmed = findings.filter(
+    (f) => reviewed[f.id]?.action !== "rejected" && f.finding_type !== "sensitive"
+  );
+  const contentFlags = findings.filter(
+    (f) => f.finding_type === "sensitive" && reviewed[f.id]?.action !== "rejected"
+  );
 
   return (
     <div className="report-view">
@@ -49,7 +54,7 @@ export default function ReportView({ result, jobId, findings, reviewed }) {
           {verdict.reasons.map((r, i) => <li key={i}>{r}</li>)}
         </ul>
       )}
-      <h3>5축 MOS 스코어카드</h3>
+      <h3>축별 MOS 스코어카드</h3>
       <div className="mos-grid">
         {verdict.axis_scores.map((s) => (
           <div key={s.axis} className="mos-row">
@@ -82,6 +87,30 @@ export default function ReportView({ result, jobId, findings, reviewed }) {
           ))}
         </tbody>
       </table>
+      {contentFlags.length > 0 && (
+        <div className="content-flags-section">
+          <h3>⚠ 콘텐츠 플래그 ({contentFlags.length}건)</h3>
+          <p className="content-flags-note">
+            민감어·욕설 등 심의/등급에 영향을 줄 수 있는 표현입니다. MOS 점수에는
+            반영되지 않으며, 판정 상태와 무관하게 검수자 확인이 필요합니다.
+          </p>
+          <table className="report-table content-flags-table">
+            <thead>
+              <tr><th>타임코드</th><th>유형</th><th>더빙 대사</th><th>지적 사유</th></tr>
+            </thead>
+            <tbody>
+              {contentFlags.map((f) => (
+                <tr key={f.id}>
+                  <td>{f.start_time.toFixed(1)}s</td>
+                  <td>{f.issue_type}</td>
+                  <td>{f.current_translation}</td>
+                  <td>{f.description}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
       {reverdictError && <div className="review-error">{reverdictError}</div>}
       <div className="report-actions">
         <button className="export-btn" onClick={confirmVerdict} disabled={reverdicting}>

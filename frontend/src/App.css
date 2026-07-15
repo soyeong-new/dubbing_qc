@@ -1164,3 +1164,8 @@ body {
   .view-tabs, .report-actions { display: none; }
   body { background: #fff; color: #000; }
 }
+
+.content-flags-section { margin: 24px 0; padding: 16px; border-radius: 10px;
+  background: #2b1414; border: 1px solid #5a2a2a; }
+.content-flags-note { font-size: 13px; color: #d0a0a0; margin-bottom: 12px; }
+.content-flags-table th, .content-flags-table td { border-bottom-color: #4a2424; }
