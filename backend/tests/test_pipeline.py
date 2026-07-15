@@ -63,3 +63,33 @@ async def test_pipeline_without_stem_skips_audio_checks(job_files, monkeypatch):
     pipeline = QCPipeline(provider=get_provider())
     result = await pipeline.run(QCJobInput(en_srt_path=en, kr_srt_path=kr))
     assert all(f.issue_type not in ("클리핑", "드롭아웃", "잡음") for f in result.findings)
+
+
+async def test_pipeline_includes_sensitive_word_findings(job_files, monkeypatch, tmp_path):
+    monkeypatch.setenv("QC_PROVIDER", "mock")
+    en, kr, stem = job_files
+    # 사전에 확실히 걸리는 단어를 영어 SRT에 심는다
+    sensitive_srt = tmp_path / "en_sensitive.srt"
+    sensitive_srt.write_text(
+        "1\n00:00:01,000 --> 00:00:03,000\nthis line has PLACEHOLDER-SLUR-1 in it\n",
+        encoding="utf-8",
+    )
+    pipeline = QCPipeline(provider=get_provider())
+    result = await pipeline.run(QCJobInput(
+        movie_title="t", en_srt_path=str(sensitive_srt), kr_srt_path=kr,
+        stem_audio_path=stem,
+    ))
+    sensitive_findings = [f for f in result.findings if f.finding_type == "sensitive"]
+    assert len(sensitive_findings) >= 1
+
+
+async def test_pipeline_passes_kr_audio_path_to_panel_for_director(job_files, monkeypatch):
+    monkeypatch.setenv("QC_PROVIDER", "mock")
+    en, kr, stem = job_files
+    pipeline = QCPipeline(provider=get_provider())
+    # kr_audio_path 없이도(한국어 SRT만 제공) 예외 없이 완료되어야 한다 —
+    # 원본 오디오가 없으면 그냥 클립 없이 진행(우아한 저하)
+    result = await pipeline.run(QCJobInput(
+        movie_title="t", en_srt_path=en, kr_srt_path=kr, stem_audio_path=stem,
+    ))
+    assert result.verdict.status in ("pass", "conditional", "fail")

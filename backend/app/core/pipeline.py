@@ -3,7 +3,10 @@ from app.schemas import QCJobInput, QCResult
 from app.providers.base import ModelProvider, get_provider
 from app.core.ingest import load_text_source
 from app.core.alignment import align, assign_scenes, group_by_scene
-from app.core.rule_checks import run_text_checks, check_audio_quality, check_srt_audio_match
+from app.core.rule_checks import (
+    run_text_checks, check_audio_quality, check_srt_audio_match, check_sensitive_words,
+)
+from app.core.accent import check_accent_conformance
 from app.core.judge_panel import run_panel
 from app.core.verdict import load_config, compute_axis_scores, decide
 from app.knowledge.loader import load_knowledge
@@ -33,17 +36,19 @@ class QCPipeline:
 
         # ③ 결정론적 룰 체크
         notify("rules", 0, 1)
-        findings = run_text_checks(pairs)
+        findings = run_text_checks(pairs) + check_sensitive_words(pairs)
         if job.stem_audio_path:
             findings += check_audio_quality(job.stem_audio_path, pairs)
             findings += await check_srt_audio_match(pairs, job.stem_audio_path, provider)
+            findings += check_accent_conformance(pairs, job.stem_audio_path)
         notify("rules", 1, 1)
 
-        # ④ 페르소나 패널
+        # ④ 페르소나 패널 (연출가에게 원본 오디오도 함께 전달)
         scenes = group_by_scene(pairs)
         panel_findings = await run_panel(
             scenes, load_knowledge(), provider,
             stem_wav_path=job.stem_audio_path,
+            kr_audio_path=job.kr_audio_path,
             on_progress=lambda d, t: notify("panel", d, t),
         )
         findings += panel_findings
