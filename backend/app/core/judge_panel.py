@@ -73,6 +73,7 @@ def merge_findings(findings: List[QCFinding]) -> List[QCFinding]:
 
 async def run_panel(scenes: Dict[str, List[AlignedPair]], knowledge: str,
                     provider: ModelProvider, stem_wav_path: Optional[str] = None,
+                    kr_audio_path: Optional[str] = None,
                     on_progress: Optional[Callable[[int, int], None]] = None) -> List[QCFinding]:
     from app.core.rule_checks import extract_clip
 
@@ -81,6 +82,7 @@ async def run_panel(scenes: Dict[str, List[AlignedPair]], knowledge: str,
     for done, scene_id in enumerate(scene_ids, start=1):
         pairs = scenes[scene_id]
         clip_path = None
+        original_clip_path = None
         if stem_wav_path:
             anchors = [(p.dubbed or p.korean) for p in pairs if (p.dubbed or p.korean)]
             if anchors:
@@ -93,12 +95,25 @@ async def run_panel(scenes: Dict[str, List[AlignedPair]], knowledge: str,
                     )
                 except Exception as e:
                     print(f"[패널] {scene_id} 오디오 클립 추출 실패, 오디오 없이 진행: {e}")
+        if kr_audio_path:
+            kr_anchors = [p.korean for p in pairs if p.korean]
+            if kr_anchors:
+                try:
+                    original_clip_path = await asyncio.to_thread(
+                        extract_clip, kr_audio_path, kr_anchors[0].start, kr_anchors[-1].end
+                    )
+                except Exception as e:
+                    print(f"[패널] {scene_id} 원본 오디오 클립 추출 실패, 원본 없이 진행: {e}")
         for persona in PERSONAS:
             audio = clip_path if persona.uses_audio else None
+            orig_audio = original_clip_path if persona.uses_audio else None
             for attempt in (1, 2):
                 try:
                     all_findings.extend(
-                        await provider.judge(pairs, persona, knowledge, audio_clip_path=audio)
+                        await provider.judge(
+                            pairs, persona, knowledge,
+                            audio_clip_path=audio, original_audio_clip_path=orig_audio,
+                        )
                     )
                     break
                 except Exception as e:

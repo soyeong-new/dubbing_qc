@@ -18,7 +18,8 @@ class MockProvider(ModelProvider):
         ]
 
     async def judge(self, pairs: List[AlignedPair], persona: Persona,
-                    knowledge: str, audio_clip_path: Optional[str] = None) -> List[QCFinding]:
+                    knowledge: str, audio_clip_path: Optional[str] = None,
+                    original_audio_clip_path: Optional[str] = None) -> List[QCFinding]:
         findings = []
         for pair in pairs:
             if not pair.dubbed or not pair.korean:

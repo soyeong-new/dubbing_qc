@@ -145,13 +145,19 @@ class GeminiProvider(ModelProvider):
         return parse_stt_response(response.text)
 
     async def judge(self, pairs: List[AlignedPair], persona: Persona,
-                    knowledge: str, audio_clip_path: Optional[str] = None) -> List[QCFinding]:
+                    knowledge: str, audio_clip_path: Optional[str] = None,
+                    original_audio_clip_path: Optional[str] = None) -> List[QCFinding]:
         model = self._genai.GenerativeModel(MODEL_NAME)
         prompt = build_judge_prompt(pairs, persona, knowledge)
         parts = [prompt]
         if audio_clip_path and persona.uses_audio and os.path.exists(audio_clip_path):
-            audio_data = await asyncio.to_thread(_compress_to_mp3, audio_clip_path)
-            parts.insert(0, {"mime_type": "audio/mp3", "data": audio_data})
+            dub_audio = await asyncio.to_thread(_compress_to_mp3, audio_clip_path)
+            parts.insert(0, {"mime_type": "audio/mp3", "data": dub_audio})
+            parts.insert(0, "[다음 오디오는 영어 더빙입니다]")
+        if original_audio_clip_path and persona.uses_audio and os.path.exists(original_audio_clip_path):
+            orig_audio = await asyncio.to_thread(_compress_to_mp3, original_audio_clip_path)
+            parts.insert(0, {"mime_type": "audio/mp3", "data": orig_audio})
+            parts.insert(0, "[다음 오디오는 한국어 원본입니다]")
         # 동기 SDK 호출을 스레드로 넘겨 이벤트 루프가 다른 요청(진행률 폴링 등)을
         # 계속 처리할 수 있게 한다 — transcribe()의 동일 주석 참고.
         response = await asyncio.to_thread(

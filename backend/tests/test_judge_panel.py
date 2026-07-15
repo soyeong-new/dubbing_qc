@@ -73,3 +73,44 @@ def test_native_persona_instruction_mentions_sensitive_content():
     native = next(p for p in PERSONAS if p.key == "native")
     assert "민감" in native.instruction
     assert "finding_type" in native.instruction
+
+
+async def test_run_panel_extracts_original_audio_clip_for_director(monkeypatch, tmp_path):
+    import wave, struct
+    monkeypatch.setenv("QC_PROVIDER", "mock")
+    provider = get_provider()
+
+    def make_wav(path, seconds=3.0, rate=16000):
+        n = int(seconds * rate)
+        with wave.open(str(path), "wb") as w:
+            w.setnchannels(1); w.setsampwidth(2); w.setframerate(rate)
+            w.writeframes(struct.pack(f"{n}h", *([0] * n)))
+
+    stem_path = tmp_path / "stem.wav"
+    kr_path = tmp_path / "kr.wav"
+    make_wav(stem_path)
+    make_wav(kr_path)
+
+    pair = AlignedPair(
+        id="pair_1", scene_id="scene_1",
+        korean=SegmentText(start=0, end=2, speaker="A", text="어이가 없네."),
+        dubbed=SegmentText(start=0, end=2, speaker="A", text="I have no kidney."),
+    )
+    received = {"original_audio_clip_path": []}
+
+    class RecordingProvider:
+        async def transcribe(self, audio_path, lang):
+            return []
+
+        async def judge(self, pairs, persona, knowledge, audio_clip_path=None,
+                        original_audio_clip_path=None):
+            received["original_audio_clip_path"].append(original_audio_clip_path)
+            return await provider.judge(pairs, persona, knowledge, audio_clip_path=audio_clip_path)
+
+    await run_panel(
+        {"scene_1": [pair]}, knowledge="", provider=RecordingProvider(),
+        stem_wav_path=str(stem_path), kr_audio_path=str(kr_path),
+    )
+    # director(uses_audio=True) 호출에서만 원본 클립 경로가 채워져야 한다
+    director_calls = [v for v in received["original_audio_clip_path"] if v is not None]
+    assert len(director_calls) == 1

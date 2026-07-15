@@ -24,7 +24,8 @@ class ModelProvider(ABC):
 
     @abstractmethod
     async def judge(self, pairs: List[AlignedPair], persona: Persona,
-                    knowledge: str, audio_clip_path: Optional[str] = None) -> List[QCFinding]:
+                    knowledge: str, audio_clip_path: Optional[str] = None,
+                    original_audio_clip_path: Optional[str] = None) -> List[QCFinding]:
         ...
 
     # score(pairs) -> list[float] : 2단계 xCOMET 스크리너용 예약. 이번 단계에서 구현하지 않음.

@@ -86,3 +86,52 @@ def test_parse_judge_response_rejects_invalid_finding_type():
     }])
     findings = parse_judge_response(raw, [PAIR], PERSONA)
     assert findings[0].finding_type == "quality"
+
+
+def test_judge_attaches_both_original_and_dub_audio(monkeypatch, tmp_path):
+    import asyncio
+    from unittest.mock import MagicMock
+    from app.providers.gemini import GeminiProvider
+
+    # uses_audio=True인 페르소나(연출가 등)여야 오디오 파트가 실제로 붙는다.
+    # 모듈 상단의 PERSONA(native)는 uses_audio=False라 이 케이스를 검증하지 못한다.
+    audio_persona = Persona(
+        key="director", name="더빙 연출가",
+        instruction="감정 표현을 평가하라.", axes=["감정 표현"], uses_audio=True,
+    )
+
+    dub_wav = tmp_path / "dub.wav"
+    orig_wav = tmp_path / "orig.wav"
+    dub_wav.write_bytes(b"fake")
+    orig_wav.write_bytes(b"fake")
+
+    monkeypatch.setenv("GEMINI_API_KEY", "test-key")
+    monkeypatch.setattr("app.providers.gemini._compress_to_mp3", lambda path: b"mp3data")
+
+    captured = {}
+
+    class FakeModel:
+        def generate_content(self, parts, generation_config=None):
+            captured["parts"] = parts
+            resp = MagicMock()
+            resp.text = "[]"
+            return resp
+
+    class FakeGenAI:
+        def configure(self, api_key=None):
+            pass
+
+        def GenerativeModel(self, name):
+            return FakeModel()
+
+    monkeypatch.setattr("google.generativeai.configure", lambda api_key=None: None)
+    provider = GeminiProvider()
+    provider._genai = FakeGenAI()
+
+    asyncio.run(provider.judge(
+        [PAIR], audio_persona, knowledge="",
+        audio_clip_path=str(dub_wav), original_audio_clip_path=str(orig_wav),
+    ))
+    # 오디오 파트가 2개(원본+더빙) 포함되어야 한다
+    audio_parts = [p for p in captured["parts"] if isinstance(p, dict) and "mime_type" in p]
+    assert len(audio_parts) == 2
