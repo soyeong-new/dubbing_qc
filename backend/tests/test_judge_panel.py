@@ -67,3 +67,9 @@ async def test_run_panel_survives_audio_clip_extraction_failure(monkeypatch):
     )
     assert len(findings) == 1
     assert findings[0].agreement == 3
+
+
+def test_native_persona_instruction_mentions_sensitive_content():
+    native = next(p for p in PERSONAS if p.key == "native")
+    assert "민감" in native.instruction
+    assert "finding_type" in native.instruction

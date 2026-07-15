@@ -57,3 +57,32 @@ def test_parse_stt_response():
     segments = parse_stt_response(raw)
     assert len(segments) == 2
     assert segments[0].text == "안녕하세요"
+
+
+def test_parse_judge_response_reads_finding_type():
+    raw = json.dumps([{
+        "segment_id": "pair_3", "severity": "high", "issue_type": "민감어",
+        "description": "설명", "recommendation": "fix", "confidence": 0.9,
+        "axis": "언어 적합성", "finding_type": "sensitive",
+    }])
+    findings = parse_judge_response(raw, [PAIR], PERSONA)
+    assert findings[0].finding_type == "sensitive"
+
+
+def test_parse_judge_response_defaults_finding_type_to_quality():
+    raw = json.dumps([{
+        "segment_id": "pair_3", "severity": "low", "issue_type": "기타",
+        "description": "d", "recommendation": "r", "confidence": 0.5,
+    }])
+    findings = parse_judge_response(raw, [PAIR], PERSONA)
+    assert findings[0].finding_type == "quality"
+
+
+def test_parse_judge_response_rejects_invalid_finding_type():
+    raw = json.dumps([{
+        "segment_id": "pair_3", "severity": "low", "issue_type": "기타",
+        "description": "d", "recommendation": "r", "confidence": 0.5,
+        "finding_type": "not_a_real_type",
+    }])
+    findings = parse_judge_response(raw, [PAIR], PERSONA)
+    assert findings[0].finding_type == "quality"

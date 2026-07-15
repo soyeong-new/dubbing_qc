@@ -30,11 +30,14 @@ JUDGE_PROMPT_TEMPLATE = """
 - recommendation은 반드시 **영어**로: 교체 가능한 최종 더빙 대사
 - axis는 다음 중 하나: {axes}
 - severity는 "high" | "medium" | "low"
+- finding_type은 "quality"(일반 품질 지적) 또는 "sensitive"(민감어·욕설 지적) 중 하나.
+  생략 시 "quality"로 간주됩니다.
 - 문제 없는 세그먼트는 결과에 포함하지 마십시오.
 
 반환 스키마:
 [{{"segment_id": "...", "severity": "...", "issue_type": "...",
-  "description": "...", "recommendation": "...", "confidence": 0.9, "axis": "..."}}]
+  "description": "...", "recommendation": "...", "confidence": 0.9, "axis": "...",
+  "finding_type": "quality"}}]
 
 ## 분석할 세그먼트 쌍
 {payload}
@@ -73,6 +76,9 @@ def parse_judge_response(text: str, pairs: List[AlignedPair], persona: Persona) 
         if axis not in AXES:
             axis = default_axis
         anchor = pair.korean or pair.dubbed
+        finding_type = item.get("finding_type", "quality")
+        if finding_type not in ("quality", "sensitive"):
+            finding_type = "quality"
         findings.append(QCFinding(
             id=f"{persona.key}_{pair.id}_{i}",
             segment_id=pair.id,
@@ -87,6 +93,7 @@ def parse_judge_response(text: str, pairs: List[AlignedPair], persona: Persona) 
             confidence=float(item.get("confidence", 0.8)),
             axis=axis,
             source=f"persona:{persona.key}",
+            finding_type=finding_type,
         ))
     return findings
 
