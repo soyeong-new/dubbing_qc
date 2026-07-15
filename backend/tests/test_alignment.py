@@ -46,3 +46,28 @@ def test_assign_scenes_by_gap():
     assert pairs[2].scene_id == "scene_2"
     scenes = group_by_scene(pairs)
     assert len(scenes["scene_1"]) == 2
+
+
+def test_assign_scenes_size_cap_splits_long_uninterrupted_dialogue():
+    from app.schemas import AlignedPair
+    pairs = []
+    t = 0.0
+    for i in range(25):
+        seg = kr(t, t + 1.0, f"line{i}")
+        pairs.append(AlignedPair(id=f"pair_{i+1}", korean=seg, dubbed=seg, alignment_confidence=1.0))
+        t += 1.5  # 세그먼트 간 간격 0.5초 (gap_threshold 3.0초 미만)
+    result = assign_scenes(pairs, max_segments=20, max_duration=999.0)
+    scene_ids = [p.scene_id for p in result]
+    assert scene_ids[0] == "scene_1"
+    assert scene_ids[20] == "scene_2"
+
+
+def test_assign_scenes_size_cap_does_not_trigger_on_short_dialogue():
+    from app.schemas import AlignedPair
+    seg_a, seg_b = kr(0, 1, "a"), kr(1.5, 2.5, "b")
+    pairs = [
+        AlignedPair(id="pair_1", korean=seg_a, dubbed=seg_a, alignment_confidence=1.0),
+        AlignedPair(id="pair_2", korean=seg_b, dubbed=seg_b, alignment_confidence=1.0),
+    ]
+    result = assign_scenes(pairs, max_segments=20, max_duration=180.0)
+    assert result[0].scene_id == result[1].scene_id

@@ -35,13 +35,30 @@ def align(korean: List[SegmentText], dubbed: List[SegmentText]) -> List[AlignedP
     return pairs
 
 
-def assign_scenes(pairs: List[AlignedPair], gap_threshold: float = 3.0) -> List[AlignedPair]:
+def assign_scenes(pairs: List[AlignedPair], gap_threshold: float = 3.0,
+                  max_segments: int = 20, max_duration: float = 180.0) -> List[AlignedPair]:
     scene_num = 1
     prev_end = None
+    scene_start = None
+    scene_count = 0
     for p in pairs:
         anchor = p.korean or p.dubbed
+        new_scene = False
         if prev_end is not None and anchor.start - prev_end > gap_threshold:
+            new_scene = True
+        elif scene_start is not None and (
+            scene_count >= max_segments or anchor.end - scene_start > max_duration
+        ):
+            # 크기 상한(안전장치) — 침묵 기준만으로 배치가 과도하게 커지는
+            # 드문 경우에만 개입한다. 대다수 배치는 이 조건에 도달하지 않는다.
+            new_scene = True
+        if new_scene:
             scene_num += 1
+            scene_start = None
+            scene_count = 0
+        if scene_start is None:
+            scene_start = anchor.start
+        scene_count += 1
         p.scene_id = f"scene_{scene_num}"
         prev_end = max(prev_end or 0.0, anchor.end)
     return pairs
