@@ -73,6 +73,7 @@ def test_check_sensitive_words_flags_matching_dub_text():
     assert findings[0].finding_type == "sensitive"
     assert findings[0].axis == "언어 적합성"
     assert "테스트" in findings[0].description
+    assert findings[0].recommendation.isascii()  # recommendation은 반드시 영어
 
 
 def test_check_sensitive_words_no_match_returns_empty():

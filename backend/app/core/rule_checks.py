@@ -239,7 +239,7 @@ def check_sensitive_words(pairs: List[AlignedPair], terms: List[tuple] = None) -
                                 "해당 표현의 사용 맥락과 등급 영향을 검토하세요.",
                     original_text=p.korean.text if p.korean else "",
                     current_translation=p.dubbed.text,
-                    recommendation="해당 표현을 검토하고 필요 시 수정하세요.",
+                    recommendation="Review this expression and revise if needed.",
                     confidence=1.0, axis="언어 적합성", source="rule",
                     finding_type="sensitive",
                 ))
