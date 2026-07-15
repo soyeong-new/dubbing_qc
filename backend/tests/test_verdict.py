@@ -66,3 +66,14 @@ def test_sensitive_findings_excluded_from_axis_scoring():
     scores = compute_axis_scores(findings, n_pairs=100, config=config)
     lang = next(s for s in scores if s.axis == "언어 적합성")
     assert lang.mos == 5  # 민감어 finding은 감점에 반영되지 않아야 한다
+
+
+def test_sensitive_high_finding_does_not_force_fail():
+    config = load_config()
+    findings = [finding("언어 적합성", "high", seg="p1")]
+    findings[0] = findings[0].model_copy(update={"finding_type": "sensitive"})
+    scores = compute_axis_scores(findings, n_pairs=100, config=config)
+    verdict = decide(scores, findings, config)
+    # 민감어(high)는 verdict의 즉시 반려 판단에서 제외되어야 한다 —
+    # 다른 quality 축이 전부 정상이면 fail이 아니어야 한다.
+    assert verdict.status != "fail"

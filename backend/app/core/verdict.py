@@ -33,7 +33,10 @@ def compute_axis_scores(findings: List[QCFinding], n_pairs: int, config: dict) -
 
 def decide(axis_scores: List[AxisScore], findings: List[QCFinding], config: dict) -> Verdict:
     reasons = []
-    high_findings = [f for f in findings if f.severity == "high"]
+    # 민감어(sensitive) finding은 정보성 표시일 뿐 verdict의 즉시 반려 판단에는
+    # 포함하지 않는다 — compute_axis_scores()의 MOS 산정에서 이미 제외되는 것과 동일하게,
+    # 여기서도 finding_type="quality"인 high 지적만 즉시 반려 사유로 센다.
+    high_findings = [f for f in findings if f.severity == "high" and f.finding_type == "quality"]
     min_mos = min(s.mos for s in axis_scores)
     pass_min = config["verdict"]["pass_min_mos"]
     cond_min = config["verdict"]["conditional_min_mos"]

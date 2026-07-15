@@ -87,6 +87,64 @@ async def test_pipeline_includes_sensitive_word_findings(job_files, monkeypatch,
     ))
     sensitive_findings = [f for f in result.findings if f.finding_type == "sensitive"]
     assert len(sensitive_findings) >= 1
+    # 참고: 이 시나리오는 en_srt에 줄이 하나뿐이라 두 번째 KR 줄이 "번역 누락"(quality/high)으로
+    # 잡히고, 픽스처의 합성 사인파 stem 오디오가 SNR 체크에서 상시 "잡음"(quality/medium)을
+    # 유발한다 — 두 세그먼트짜리 미니 픽스처에서는 그 하나만으로도 해당 축 MOS가 1로
+    # 떨어져 fail이 된다. 즉 이 시나리오의 verdict.status는 원래도 fail이며, 민감어
+    # finding이 fail을 "추가로" 강제하는지 여부는 이 케이스로는 격리해서 검증할 수 없다.
+    # verdict가 sensitive-only high로 fail을 강제하지 않는지는 아래
+    # test_sensitive_only_high_finding_does_not_force_fail에서 다른 quality 지적이
+    # 전혀 없는 깨끗한 시나리오로 검증한다.
+
+
+async def test_sensitive_only_high_finding_does_not_force_fail(monkeypatch, tmp_path):
+    """민감어(high, finding_type=sensitive) 단독으로는 verdict를 fail로 만들지 않아야 한다.
+
+    check_sensitive_words는 텍스트 기반이므로 stem_audio_path 없이 실행해
+    (합성 sine wave 픽스처가 유발하는 상시 SNR 'medium' 잡음 quality finding 등)
+    다른 축의 quality finding이 섞이지 않는 깨끗한 시나리오를 만든다. 두 자막 줄의
+    타임코드/속도를 원본과 정확히 맞춰 pacing/sync/low-alignment/missing 체크 중
+    무엇도 걸리지 않도록 한다.
+    """
+    monkeypatch.setenv("QC_PROVIDER", "mock")
+    kr = tmp_path / "kr_clean.srt"
+    kr.write_text(
+        "1\n00:00:01,000 --> 00:00:03,000\n형, 밥 먹었어?\n\n"
+        "2\n00:00:04,000 --> 00:00:06,000\n어이가 없네.\n",
+        encoding="utf-8",
+    )
+    en = tmp_path / "en_clean_sensitive.srt"
+    en.write_text(
+        "1\n00:00:01,000 --> 00:00:03,000\nHey friend, did you have a meal?\n\n"
+        "2\n00:00:04,000 --> 00:00:06,000\nthis scene has a PLACEHOLDER-SLUR-1 word\n",
+        encoding="utf-8",
+    )
+    pipeline = QCPipeline(provider=get_provider())
+    result = await pipeline.run(QCJobInput(
+        movie_title="t", en_srt_path=str(en), kr_srt_path=str(kr),
+    ))
+    sensitive_findings = [f for f in result.findings if f.finding_type == "sensitive"]
+    quality_high = [f for f in result.findings if f.finding_type == "quality" and f.severity == "high"]
+    assert len(sensitive_findings) >= 1
+    assert quality_high == []  # 이 시나리오에 다른 quality/high 지적이 없음을 확인
+    assert result.verdict.status != "fail"
+
+
+async def test_pipeline_survives_accent_classification_failure(job_files, monkeypatch):
+    monkeypatch.setenv("QC_PROVIDER", "mock")
+
+    def _raise_classify_accent(clip_path):
+        raise RuntimeError("model load failed")
+
+    monkeypatch.setattr("app.core.accent.classify_accent", _raise_classify_accent)
+    en, kr, stem = job_files
+    pipeline = QCPipeline(provider=get_provider())
+    # 억양 분류가 실패해도 파이프라인 전체가 죽지 않고, 억양 관련 finding 없이
+    # 완료되어야 한다 (우아한 저하).
+    result = await pipeline.run(QCJobInput(
+        movie_title="t", en_srt_path=en, kr_srt_path=kr, stem_audio_path=stem,
+    ))
+    assert all(f.axis != "억양 적합성" for f in result.findings)
 
 
 async def test_pipeline_passes_kr_audio_path_to_panel_for_director(job_files, monkeypatch):

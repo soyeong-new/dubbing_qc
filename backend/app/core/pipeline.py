@@ -1,3 +1,4 @@
+import asyncio
 from typing import Callable, Optional
 from app.schemas import QCJobInput, QCResult
 from app.providers.base import ModelProvider, get_provider
@@ -40,7 +41,19 @@ class QCPipeline:
         if job.stem_audio_path:
             findings += check_audio_quality(job.stem_audio_path, pairs)
             findings += await check_srt_audio_match(pairs, job.stem_audio_path, provider)
-            findings += check_accent_conformance(pairs, job.stem_audio_path)
+            try:
+                # check_accent_conformance는 세그먼트마다 ffmpeg 클립 추출(동기 subprocess)과
+                # SpeechBrain 추론을 동기로 수행한다 — asyncio 이벤트 루프를 막지 않도록
+                # 스레드로 넘긴다 (그렇지 않으면 진행률 폴링 등 다른 요청이 이 억양 분류가
+                # 끝날 때까지 전부 멈춘다).
+                findings += await asyncio.to_thread(
+                    check_accent_conformance, pairs, job.stem_audio_path
+                )
+            except Exception as e:
+                # 클립 추출 실패, 모델 로드 실패 등 단일 원인으로 전체 QC 작업이
+                # 죽지 않도록 억양 체크만 건너뛰고 계속 진행한다 (우아한 저하) —
+                # 이미 계산된 텍스트/오디오 findings를 버리는 것보다 낫다.
+                print(f"[파이프라인] 억양 분류 실패, 해당 체크 없이 진행: {e}")
         notify("rules", 1, 1)
 
         # ④ 페르소나 패널 (연출가에게 원본 오디오도 함께 전달)
