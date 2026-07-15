@@ -53,3 +53,32 @@ def test_run_text_checks_combines_all():
     types = {f.issue_type for f in findings}
     assert "번역 누락" in types
     assert "싱크 오버플로" in types
+
+
+def test_load_sensitive_terms_reads_yaml(tmp_path):
+    from app.core.rule_checks import load_sensitive_terms
+    p = tmp_path / "sensitive_words.yaml"
+    p.write_text("terms:\n  - word: TESTWORD\n    category: 테스트\n", encoding="utf-8")
+    terms = load_sensitive_terms(str(p))
+    assert terms == [("testword", "테스트")]
+
+
+def test_check_sensitive_words_flags_matching_dub_text():
+    from app.core.rule_checks import check_sensitive_words
+    findings = check_sensitive_words(
+        [pair(en_text="this contains TESTWORD in it")],
+        terms=[("testword", "테스트")],
+    )
+    assert len(findings) == 1
+    assert findings[0].finding_type == "sensitive"
+    assert findings[0].axis == "언어 적합성"
+    assert "테스트" in findings[0].description
+
+
+def test_check_sensitive_words_no_match_returns_empty():
+    from app.core.rule_checks import check_sensitive_words
+    findings = check_sensitive_words(
+        [pair(en_text="a perfectly clean line")],
+        terms=[("testword", "테스트")],
+    )
+    assert findings == []

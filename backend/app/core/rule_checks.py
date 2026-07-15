@@ -5,7 +5,9 @@ import struct
 import subprocess
 import tempfile
 import wave
+from pathlib import Path
 from typing import List
+import yaml
 from app.schemas import AlignedPair, QCFinding
 from app.providers.base import ModelProvider
 
@@ -206,4 +208,40 @@ async def check_srt_audio_match(pairs: List[AlignedPair], stem_wav_path: str,
                 f"(음성 인식 결과: \"{heard_text[:80]}\") 누락/애드리브/다른 테이크 여부를 확인하세요.",
                 "Verify the recorded line against the final script.",
             ))
+    return findings
+
+
+_DEFAULT_SENSITIVE_WORDS = Path(__file__).parent.parent / "knowledge" / "sensitive_words.yaml"
+
+
+def load_sensitive_terms(path: str = None) -> List[tuple]:
+    p = Path(path) if path else _DEFAULT_SENSITIVE_WORDS
+    data = yaml.safe_load(p.read_text(encoding="utf-8")) or {}
+    return [(t["word"].lower(), t.get("category", "기타")) for t in data.get("terms", [])]
+
+
+def check_sensitive_words(pairs: List[AlignedPair], terms: List[tuple] = None) -> List[QCFinding]:
+    terms = terms if terms is not None else load_sensitive_terms()
+    findings = []
+    for p in pairs:
+        if not p.dubbed or not p.dubbed.text.strip():
+            continue
+        text_lower = p.dubbed.text.lower()
+        for word, category in terms:
+            if word in text_lower:
+                anchor = p.korean or p.dubbed
+                findings.append(QCFinding(
+                    id=f"rule_sensitive_{p.id}_{word.replace(' ', '_')}",
+                    segment_id=p.id, category="localization", severity="high",
+                    issue_type=f"민감어({category})",
+                    start_time=anchor.start, end_time=anchor.end, speaker=anchor.speaker,
+                    description=f"금칙어 사전에 등록된 표현이 감지되었습니다 (분류: {category}). "
+                                "해당 표현의 사용 맥락과 등급 영향을 검토하세요.",
+                    original_text=p.korean.text if p.korean else "",
+                    current_translation=p.dubbed.text,
+                    recommendation="해당 표현을 검토하고 필요 시 수정하세요.",
+                    confidence=1.0, axis="언어 적합성", source="rule",
+                    finding_type="sensitive",
+                ))
+                break
     return findings

@@ -1,0 +1,9 @@
+# 민감어·욕설 사전 — 1차 결정론적 필터 (명백한 경우만 포착)
+# 실제 운영 목록은 사내 심의 기준 문서를 확보한 뒤 채워야 한다
+# (설계 스펙 docs/superpowers/specs/2026-07-15-dubbing-qc-v2-audio-redesign.md §11 참조).
+# 아래는 메커니즘 검증용 자리표시 항목이다 — 실제 욕설/슬러를 넣지 않는다.
+terms:
+  - word: "placeholder-slur-1"
+    category: "인종/민족"
+  - word: "placeholder-profanity-1"
+    category: "욕설"
