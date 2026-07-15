@@ -12,7 +12,7 @@ class ScriptSegment(BaseModel):
     translated_text: str = Field(..., description="English translated script line")
 
 
-AXES = ["음질", "감정 표현", "싱크 정확도", "자연스러움", "언어 적합성"]
+AXES = ["음질", "감정 표현", "싱크 정확도", "자연스러움", "언어 적합성", "억양 적합성"]
 
 
 class SegmentText(BaseModel):
@@ -48,6 +48,7 @@ class QCFinding(BaseModel):
     source: str = "rule"
     agreement: int = 1
     alternatives: Dict[str, str] = Field(default_factory=dict)
+    finding_type: Literal["quality", "sensitive"] = "quality"
 
 
 class AxisScore(BaseModel):

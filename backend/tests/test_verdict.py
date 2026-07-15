@@ -55,3 +55,14 @@ def test_conditional_when_one_axis_is_3():
     assert nat.mos == 3               # 15 < 24 <= 35 구간
     verdict = decide(scores, findings, config)
     assert verdict.status == "conditional"
+
+
+def test_sensitive_findings_excluded_from_axis_scoring():
+    config = load_config()
+    findings = [
+        finding("언어 적합성", "high", seg="p1"),
+    ]
+    findings[0] = findings[0].model_copy(update={"finding_type": "sensitive"})
+    scores = compute_axis_scores(findings, n_pairs=100, config=config)
+    lang = next(s for s in scores if s.axis == "언어 적합성")
+    assert lang.mos == 5  # 민감어 finding은 감점에 반영되지 않아야 한다

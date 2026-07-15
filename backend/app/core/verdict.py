@@ -17,7 +17,10 @@ def compute_axis_scores(findings: List[QCFinding], n_pairs: int, config: dict) -
     thresholds = config["mos_thresholds"]
     scores = []
     for axis in AXES:
-        total = sum(deduction_w.get(f.severity, 0) for f in findings if f.axis == axis)
+        total = sum(
+            deduction_w.get(f.severity, 0) for f in findings
+            if f.axis == axis and f.finding_type == "quality"
+        )
         rate = round(total / n_pairs * 100, 1)
         mos = 1
         for level in (5, 4, 3, 2):

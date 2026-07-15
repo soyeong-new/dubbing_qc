@@ -4,8 +4,8 @@ from app.schemas import (
 )
 
 
-def test_axes_are_the_five_company_axes():
-    assert AXES == ["음질", "감정 표현", "싱크 정확도", "자연스러움", "언어 적합성"]
+def test_axes_are_the_six_company_axes():
+    assert AXES == ["음질", "감정 표현", "싱크 정확도", "자연스러움", "언어 적합성", "억양 적합성"]
 
 
 def test_aligned_pair_allows_missing_side():
@@ -54,3 +54,19 @@ def test_feedback_entry_defaults():
     )
     assert e.final_text == ""
     assert e.chosen_persona == ""
+
+
+def test_axes_has_six_entries_including_accent():
+    from app.schemas import AXES
+    assert AXES == ["음질", "감정 표현", "싱크 정확도", "자연스러움", "언어 적합성", "억양 적합성"]
+
+
+def test_qcfinding_finding_type_defaults_to_quality():
+    from app.schemas import QCFinding
+    f = QCFinding(
+        id="f1", segment_id="p1", category="localization", severity="low",
+        issue_type="테스트", start_time=0, end_time=1, speaker="A",
+        description="d", original_text="o", current_translation="c",
+        recommendation="r", confidence=0.9,
+    )
+    assert f.finding_type == "quality"
