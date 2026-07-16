@@ -36,6 +36,31 @@ def test_align_reports_extra_dubbed():
     assert extras[0].dubbed.text == "ad-lib"
 
 
+def test_align_shares_one_korean_chunk_across_multiple_dubbed_lines():
+    # 로컬 STT처럼 한국어가 훨씬 큰 청크로 묶여 나오면, 그 청크 하나가 걸쳐 있는
+    # 여러 영어 줄이 전부 그 한국어 텍스트를 공유해서 받아야 한다 — 하나만 받고
+    # 나머지가 비면 안 된다.
+    pairs = align(
+        korean=[kr(0.0, 10.0, "쭉 이어 말한 원본 대사")],
+        dubbed=[en(0.0, 2.0, "Line one"), en(2.0, 5.0, "Line two"), en(5.0, 9.0, "Line three")],
+    )
+    assert len(pairs) == 3
+    assert all(p.korean is not None for p in pairs)
+    assert all(p.korean.text == "쭉 이어 말한 원본 대사" for p in pairs)
+    assert [p.dubbed.text for p in pairs] == ["Line one", "Line two", "Line three"]
+
+
+def test_align_merges_multiple_korean_segments_overlapping_one_dubbed_line():
+    # 반대로 짧은 한국어 세그먼트 여러 개가 영어 자막 한 줄에 걸쳐 있으면
+    # 텍스트를 이어붙여서 하나로 합친다.
+    pairs = align(
+        korean=[kr(0.0, 1.0, "첫마디"), kr(1.0, 2.0, "둘째마디")],
+        dubbed=[en(0.0, 2.0, "Combined line")],
+    )
+    assert len(pairs) == 1
+    assert pairs[0].korean.text == "첫마디 둘째마디"
+
+
 def test_assign_scenes_by_gap():
     pairs = align(
         korean=[kr(1.0, 2.0, "a"), kr(2.5, 4.0, "b"), kr(10.0, 11.0, "c")],
