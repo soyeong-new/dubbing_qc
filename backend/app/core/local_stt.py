@@ -31,25 +31,19 @@ def _run_pipeline(audio_path: str) -> list:
     자동화 테스트는 이 함수를 절대 호출하지 않는다 — 항상 transcribe_fn을 주입해서
     실제 모델 로드를 피한다.
 
-    모델 카드(batiai/batisay-ko-turbo)가 명시적으로 경고하는 대로, 장편(60분+) 오디오는
-    언어를 고정하지 않고 이전 문맥에 조건화한 채로 디코딩하면 무음/전환 구간에서
-    반복 환각·다른 언어 혼입("디코더 붕괴")이 발생한다. language를 한국어로 고정하고
-    condition_on_prev_tokens를 꺼서 각 청크를 독립적으로 디코딩하고, no_speech_threshold로
-    무음 구간을 억제한다.
+    언어를 자동 감지에 맡기면 무음/전환 구간에서 다른 언어(중국어·일본어·프랑스어 등)가
+    섞여 나오는 환각이 발생한다(실측 확인) — language를 한국어로 고정해 이를 막는다.
 
-    주의: logprob_threshold/compression_ratio_threshold는 추가하지 않는다 — 이 두 옵션은
-    transformers의 온도(temperature) 폴백 디코딩 로직을 함께 활성화해야 하는데, temperature를
-    별도로 지정하지 않으면 내부적으로 None과 float를 비교하다 TypeError로 크래시한다
-    (실측 확인됨). 모델 카드도 이 두 옵션을 요구하지 않는다.
+    주의: condition_on_prev_tokens=False나 no_speech_threshold 같은 폴백/억제 옵션은
+    일부러 넣지 않는다 — 이 특정 transformers 버전에서 모델에 내장된 generation_config와
+    상호작용하며 내부적으로 크래시(TypeError, UnboundLocalError)를 일으키는 것을 실측으로
+    확인했다. 언어 고정만으로 관찰된 핵심 문제(다른 언어 혼입)는 해결되며, 나머지
+    환각 억제는 이 버전 조합에서는 불안정해 보류한다.
     """
     pipe = _get_pipeline()
     result = pipe(
         audio_path, return_timestamps=True,
-        generate_kwargs={
-            "language": "korean", "task": "transcribe",
-            "condition_on_prev_tokens": False,
-            "no_speech_threshold": 0.6,
-        },
+        generate_kwargs={"language": "korean", "task": "transcribe"},
     )
     return result.get("chunks", [])
 
