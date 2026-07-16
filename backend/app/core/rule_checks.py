@@ -198,8 +198,20 @@ async def check_srt_audio_match(pairs: List[AlignedPair], stem_wav_path: str,
     for p in targets:
         # extract_clip_fn은 ffmpeg를 동기 호출한다 — asyncio 이벤트 루프를
         # 막지 않도록 스레드로 넘긴다.
-        clip = await asyncio.to_thread(extract_clip_fn, stem_wav_path, p.dubbed.start, p.dubbed.end)
-        heard = await provider.transcribe(clip, lang="en")
+        heard = None
+        for attempt in (1, 2):
+            try:
+                clip = await asyncio.to_thread(
+                    extract_clip_fn, stem_wav_path, p.dubbed.start, p.dubbed.end)
+                heard = await provider.transcribe(clip, lang="en")
+                break
+            except Exception as e:
+                # STT 응답이 깨진 JSON이거나 클립 추출이 실패해도 한 세그먼트
+                # 때문에 전체 QC가 죽으면 안 된다 — 1회 재시도 후 건너뛴다.
+                if attempt == 2:
+                    print(f"[룰체크] {p.id} 자막-음성 대조 실패 (2회 시도), 건너뜀: {e}")
+        if heard is None:
+            continue
         heard_text = " ".join(s.text for s in heard)
         if _token_similarity(p.dubbed.text, heard_text) < 0.4:
             findings.append(_finding(

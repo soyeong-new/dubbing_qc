@@ -1,6 +1,7 @@
 import os
 import csv
 import io
+import traceback
 import uuid
 
 # .env 로더 — 기존 코드 그대로 유지
@@ -119,6 +120,7 @@ async def _run_job(job_id: str, job: QCJobInput):
     except Exception as e:
         JOBS[job_id]["status"] = "error"
         JOBS[job_id]["error"] = str(e)
+        print(f"[job {job_id}] 실패:\n{traceback.format_exc()}")
 
 
 @app.post("/api/qc/run", status_code=202)
