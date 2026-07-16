@@ -1,6 +1,6 @@
 from typing import List, Optional
 from app.providers.base import ModelProvider, Persona
-from app.schemas import SegmentText, AlignedPair, QCFinding
+from app.schemas import AlignedPair, QCFinding
 
 # 결정론적 테스트 더블. 운영 경로에서는 base.get_provider()가 선택을 차단한다.
 _BAD_PATTERNS = [
@@ -11,12 +11,6 @@ _BAD_PATTERNS = [
 
 
 class MockProvider(ModelProvider):
-    async def transcribe(self, audio_path: str, lang: str) -> List[SegmentText]:
-        return [
-            SegmentText(start=1.0, end=4.5, speaker="화자1", text="임마, 너 어제 눈치 보며 기어 다녔다며?"),
-            SegmentText(start=5.2, end=7.8, speaker="화자2", text="어이가 없네. 밥도 못 먹고 조사받고 있어요."),
-        ]
-
     async def judge(self, pairs: List[AlignedPair], persona: Persona,
                     knowledge: str, audio_clip_path: Optional[str] = None,
                     original_audio_clip_path: Optional[str] = None) -> List[QCFinding]:

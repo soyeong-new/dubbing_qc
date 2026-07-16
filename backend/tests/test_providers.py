@@ -39,11 +39,3 @@ async def test_mock_judge_flags_kidney(monkeypatch):
     assert findings[0].severity == "high"
     assert findings[0].source == "persona:culture"
     assert findings[0].axis == "언어 적합성"
-
-
-async def test_mock_transcribe_returns_segments(monkeypatch):
-    monkeypatch.setenv("QC_PROVIDER", "mock")
-    provider = get_provider()
-    segments = await provider.transcribe("/tmp/nonexistent.wav", lang="ko")
-    assert len(segments) >= 2
-    assert segments[0].start < segments[1].start

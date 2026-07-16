@@ -5,16 +5,9 @@ import subprocess
 import tempfile
 from typing import List, Optional
 from app.providers.base import ModelProvider, Persona
-from app.schemas import SegmentText, AlignedPair, QCFinding, AXES
+from app.schemas import AlignedPair, QCFinding, AXES
 
 MODEL_NAME = "gemini-3.5-flash"
-
-STT_PROMPT = """
-제공된 {lang_name} 오디오 파일을 듣고, 화자별 대사와 시작/종료 시간(초)을 추출하십시오.
-세그먼트는 발화 단위로 1~4초 내외로 분할하십시오.
-반드시 아래 JSON 배열만 반환하십시오:
-[{{"start": 1.2, "end": 4.5, "speaker": "인물 1", "text": "대사 내용"}}]
-"""
 
 JUDGE_PROMPT_TEMPLATE = """
 당신은 한국 영화의 영어 더빙을 검수하는 "{persona_name}"입니다.
@@ -98,18 +91,6 @@ def parse_judge_response(text: str, pairs: List[AlignedPair], persona: Persona) 
     return findings
 
 
-def parse_stt_response(text: str) -> List[SegmentText]:
-    segments = []
-    for item in json.loads(text):
-        segments.append(SegmentText(
-            start=float(item.get("start", 0.0)),
-            end=float(item.get("end", 0.0)),
-            speaker=item.get("speaker", "?"),
-            text=item.get("text", ""),
-        ))
-    return segments
-
-
 def _compress_to_mp3(audio_path: str) -> bytes:
     out = os.path.join(tempfile.gettempdir(), f"qc_compress_{os.getpid()}.mp3")
     subprocess.run(
@@ -129,21 +110,6 @@ class GeminiProvider(ModelProvider):
         genai.configure(api_key=os.environ["GEMINI_API_KEY"])
         self._genai = genai
 
-    async def transcribe(self, audio_path: str, lang: str) -> List[SegmentText]:
-        lang_name = "한국어" if lang == "ko" else "영어"
-        audio_data = await asyncio.to_thread(_compress_to_mp3, audio_path)
-        model = self._genai.GenerativeModel(MODEL_NAME)
-        # google-generativeai의 generate_content는 동기(blocking) 호출이다.
-        # 스레드로 넘기지 않으면 이 응답을 기다리는 동안 단일 asyncio 이벤트 루프
-        # 전체가 멈춰, 같은 프로세스가 처리해야 할 진행률 폴링 요청까지 응답이 끊긴다.
-        response = await asyncio.to_thread(
-            model.generate_content,
-            [{"mime_type": "audio/mp3", "data": audio_data},
-             STT_PROMPT.format(lang_name=lang_name)],
-            generation_config={"response_mime_type": "application/json"},
-        )
-        return parse_stt_response(response.text)
-
     async def judge(self, pairs: List[AlignedPair], persona: Persona,
                     knowledge: str, audio_clip_path: Optional[str] = None,
                     original_audio_clip_path: Optional[str] = None) -> List[QCFinding]:
@@ -159,7 +125,7 @@ class GeminiProvider(ModelProvider):
             parts.insert(0, {"mime_type": "audio/mp3", "data": orig_audio})
             parts.insert(0, "[다음 오디오는 한국어 원본입니다]")
         # 동기 SDK 호출을 스레드로 넘겨 이벤트 루프가 다른 요청(진행률 폴링 등)을
-        # 계속 처리할 수 있게 한다 — transcribe()의 동일 주석 참고.
+        # 계속 처리할 수 있게 한다.
         response = await asyncio.to_thread(
             model.generate_content,
             parts, generation_config={"response_mime_type": "application/json"},

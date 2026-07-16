@@ -2,7 +2,7 @@ import os
 from abc import ABC, abstractmethod
 from typing import List, Optional
 from pydantic import BaseModel, Field
-from app.schemas import SegmentText, AlignedPair, QCFinding
+from app.schemas import AlignedPair, QCFinding
 
 
 class ProviderNotConfiguredError(RuntimeError):
@@ -18,10 +18,6 @@ class Persona(BaseModel):
 
 
 class ModelProvider(ABC):
-    @abstractmethod
-    async def transcribe(self, audio_path: str, lang: str) -> List[SegmentText]:
-        ...
-
     @abstractmethod
     async def judge(self, pairs: List[AlignedPair], persona: Persona,
                     knowledge: str, audio_clip_path: Optional[str] = None,

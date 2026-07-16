@@ -1,5 +1,5 @@
 import json
-from app.providers.gemini import build_judge_prompt, parse_judge_response, parse_stt_response
+from app.providers.gemini import build_judge_prompt, parse_judge_response
 from app.providers.base import Persona
 from app.schemas import AlignedPair, SegmentText
 
@@ -47,16 +47,6 @@ def test_parse_judge_response_drops_unknown_segment_and_bad_axis():
     findings = parse_judge_response(raw, [PAIR], PERSONA)
     assert len(findings) == 1
     assert findings[0].axis == "자연스러움"  # 페르소나 기본 축으로 보정
-
-
-def test_parse_stt_response():
-    raw = json.dumps([
-        {"start": 1.2, "end": 4.5, "speaker": "인물1", "text": "안녕하세요"},
-        {"start": 5.0, "end": 6.0, "speaker": "인물2", "text": "반갑습니다"},
-    ])
-    segments = parse_stt_response(raw)
-    assert len(segments) == 2
-    assert segments[0].text == "안녕하세요"
 
 
 def test_parse_judge_response_reads_finding_type():

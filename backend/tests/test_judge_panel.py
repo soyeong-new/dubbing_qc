@@ -99,9 +99,6 @@ async def test_run_panel_extracts_original_audio_clip_for_director(monkeypatch, 
     received = {"original_audio_clip_path": []}
 
     class RecordingProvider:
-        async def transcribe(self, audio_path, lang):
-            return []
-
         async def judge(self, pairs, persona, knowledge, audio_clip_path=None,
                         original_audio_clip_path=None):
             received["original_audio_clip_path"].append(original_audio_clip_path)
