@@ -34,8 +34,13 @@ def _run_pipeline(audio_path: str) -> list:
     모델 카드(batiai/batisay-ko-turbo)가 명시적으로 경고하는 대로, 장편(60분+) 오디오는
     언어를 고정하지 않고 이전 문맥에 조건화한 채로 디코딩하면 무음/전환 구간에서
     반복 환각·다른 언어 혼입("디코더 붕괴")이 발생한다. language를 한국어로 고정하고
-    condition_on_prev_tokens를 꺼서 각 청크를 독립적으로 디코딩하며, Whisper 표준
-    임계값(no_speech/logprob/compression_ratio)으로 무음·환각 구간을 억제한다.
+    condition_on_prev_tokens를 꺼서 각 청크를 독립적으로 디코딩하고, no_speech_threshold로
+    무음 구간을 억제한다.
+
+    주의: logprob_threshold/compression_ratio_threshold는 추가하지 않는다 — 이 두 옵션은
+    transformers의 온도(temperature) 폴백 디코딩 로직을 함께 활성화해야 하는데, temperature를
+    별도로 지정하지 않으면 내부적으로 None과 float를 비교하다 TypeError로 크래시한다
+    (실측 확인됨). 모델 카드도 이 두 옵션을 요구하지 않는다.
     """
     pipe = _get_pipeline()
     result = pipe(
@@ -44,8 +49,6 @@ def _run_pipeline(audio_path: str) -> list:
             "language": "korean", "task": "transcribe",
             "condition_on_prev_tokens": False,
             "no_speech_threshold": 0.6,
-            "logprob_threshold": -1.0,
-            "compression_ratio_threshold": 2.4,
         },
     )
     return result.get("chunks", [])

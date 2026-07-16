@@ -74,5 +74,7 @@ def test_run_pipeline_forces_korean_language_and_suppresses_hallucination(monkey
     assert gk["task"] == "transcribe"
     assert gk["condition_on_prev_tokens"] is False
     assert "no_speech_threshold" in gk
-    assert "logprob_threshold" in gk
-    assert "compression_ratio_threshold" in gk
+    # logprob_threshold/compression_ratio_threshold는 의도적으로 넣지 않는다 — temperature
+    # 폴백을 별도로 설정하지 않으면 transformers 내부에서 TypeError로 크래시한다(실측 확인).
+    assert "logprob_threshold" not in gk
+    assert "compression_ratio_threshold" not in gk
