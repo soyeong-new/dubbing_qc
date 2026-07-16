@@ -30,9 +30,24 @@ def _run_pipeline(audio_path: str) -> list:
 
     자동화 테스트는 이 함수를 절대 호출하지 않는다 — 항상 transcribe_fn을 주입해서
     실제 모델 로드를 피한다.
+
+    모델 카드(batiai/batisay-ko-turbo)가 명시적으로 경고하는 대로, 장편(60분+) 오디오는
+    언어를 고정하지 않고 이전 문맥에 조건화한 채로 디코딩하면 무음/전환 구간에서
+    반복 환각·다른 언어 혼입("디코더 붕괴")이 발생한다. language를 한국어로 고정하고
+    condition_on_prev_tokens를 꺼서 각 청크를 독립적으로 디코딩하며, Whisper 표준
+    임계값(no_speech/logprob/compression_ratio)으로 무음·환각 구간을 억제한다.
     """
     pipe = _get_pipeline()
-    result = pipe(audio_path, return_timestamps=True)
+    result = pipe(
+        audio_path, return_timestamps=True,
+        generate_kwargs={
+            "language": "korean", "task": "transcribe",
+            "condition_on_prev_tokens": False,
+            "no_speech_threshold": 0.6,
+            "logprob_threshold": -1.0,
+            "compression_ratio_threshold": 2.4,
+        },
+    )
     return result.get("chunks", [])
 
 

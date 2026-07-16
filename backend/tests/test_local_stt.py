@@ -1,3 +1,4 @@
+import app.core.local_stt as local_stt
 from app.core.local_stt import transcribe_korean
 
 
@@ -42,8 +43,6 @@ def test_transcribe_korean_handles_open_ended_last_chunk():
 
 def test_transcribe_korean_does_not_import_transformers_at_module_load(monkeypatch):
     # transcribe_fn을 주입하면 실제 모델 로드 경로(_get_pipeline)가 전혀 호출되지 않아야 한다
-    import app.core.local_stt as local_stt
-
     def boom():
         raise AssertionError("실제 모델을 로드하면 안 된다")
 
@@ -52,3 +51,28 @@ def test_transcribe_korean_does_not_import_transformers_at_module_load(monkeypat
         "/tmp/x.wav", transcribe_fn=lambda p: [{"text": "ok", "timestamp": (0.0, 1.0)}]
     )
     assert len(segments) == 1
+
+
+def test_run_pipeline_forces_korean_language_and_suppresses_hallucination(monkeypatch):
+    # 모델 카드가 명시적으로 경고하는 장편 오디오 환각(다른 언어 혼입, 반복)을 막으려면
+    # 언어를 고정하고 이전 문맥 조건화를 꺼야 한다.
+    captured = {}
+
+    class FakePipe:
+        def __call__(self, audio_path, return_timestamps=None, generate_kwargs=None):
+            captured["audio_path"] = audio_path
+            captured["return_timestamps"] = return_timestamps
+            captured["generate_kwargs"] = generate_kwargs
+            return {"chunks": [{"text": "대사", "timestamp": (0.0, 1.0)}]}
+
+    monkeypatch.setattr(local_stt, "_get_pipeline", lambda: FakePipe())
+    result = local_stt._run_pipeline("/tmp/full.wav")
+
+    assert result == [{"text": "대사", "timestamp": (0.0, 1.0)}]
+    gk = captured["generate_kwargs"]
+    assert gk["language"] == "korean"
+    assert gk["task"] == "transcribe"
+    assert gk["condition_on_prev_tokens"] is False
+    assert "no_speech_threshold" in gk
+    assert "logprob_threshold" in gk
+    assert "compression_ratio_threshold" in gk
