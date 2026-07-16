@@ -6,23 +6,38 @@ def _overlap(a: SegmentText, b: SegmentText) -> float:
     return max(0.0, min(a.end, b.end) - max(a.start, b.start))
 
 
-def align(korean: List[SegmentText], dubbed: List[SegmentText]) -> List[AlignedPair]:
-    """더빙(영어) 자막 한 줄마다, 시간이 겹치는 한국어 세그먼트를 전부 찾아 붙인다.
+def align(korean: List[SegmentText], dubbed: List[SegmentText],
+         min_overlap_ratio: float = 0.5) -> List[AlignedPair]:
+    """더빙(영어) 자막 한 줄마다, 그 줄과 "충분히" 겹치는 한국어 세그먼트를 찾아 붙인다.
 
     한국어 SRT와 영어 SRT처럼 양쪽 줄 수가 비슷할 때는 대부분 1:1로 매칭된다.
-    로컬 STT처럼 한국어가 훨씬 큰 단위(청크)로 묶여 나올 때는, 그 청크 하나가
-    여러 영어 줄에 걸쳐 있을 수 있다 — 이 경우 겹치는 모든 영어 줄이 그 한국어
-    청크를 공유해서 받는다(하나만 골라 배정하고 나머지를 비우지 않는다). 실제로
-    원본에서도 그 시간 동안 쭉 이어 말한 것이므로, 여러 줄이 같은 원문을 공유하는
-    것이 사실에 부합한다.
+    로컬 STT처럼 한국어 문장 하나가 여러 영어 줄에 걸쳐 있을 때는, 겹치는 여러
+    영어 줄이 그 한국어 문장을 공유해서 받는다 — 실제로 원본에서 그 시간 동안 쭉
+    이어 말한 것이므로 여러 줄이 같은 원문을 공유하는 것이 사실에 부합한다.
+
+    "충분히" 겹친다는 기준은 두 세그먼트 중 짧은 쪽 길이 대비 겹친 시간의 비율이
+    min_overlap_ratio(기본 50%) 이상인 경우다. 단순히 "조금이라도 겹치면 포함"하면
+    문장 경계가 영어 줄 경계와 정확히 일치하지 않아 이웃 줄과 아주 살짝(0.1~0.5초)만
+    겹치는 흔한 경우까지 전부 끌려와, 상관없는 영어 줄에 엉뚱하게 긴 한국어가
+    붙어버린다(실측 확인). 비율 기준을 두면 이런 경계의 사소한 겹침은 걸러내면서도,
+    짧은 영어 줄 여러 개가 긴 한국어 발화 하나에 온전히 포함되는 정당한 공유
+    케이스는 그대로 유지된다(포함되는 쪽 길이 전체가 겹치므로 비율이 100%에 가깝다).
     """
     pairs: List[AlignedPair] = []
     matched_korean = set()
     for j, en in enumerate(dubbed):
-        overlapping = [(i, kr) for i, kr in enumerate(korean) if _overlap(kr, en) > 0]
+        overlapping = []
+        for i, kr in enumerate(korean):
+            ov = _overlap(kr, en)
+            if ov <= 0:
+                continue
+            shorter = min(kr.end - kr.start, en.end - en.start)
+            if shorter > 0 and ov / shorter >= min_overlap_ratio:
+                overlapping.append((i, kr))
         if overlapping:
             for i, _ in overlapping:
                 matched_korean.add(i)
+            overlapping.sort(key=lambda pair: pair[1].start)
             texts = [kr.text for _, kr in overlapping]
             starts = [kr.start for _, kr in overlapping]
             ends = [kr.end for _, kr in overlapping]

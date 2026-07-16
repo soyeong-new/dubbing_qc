@@ -50,6 +50,23 @@ def test_align_shares_one_korean_chunk_across_multiple_dubbed_lines():
     assert [p.dubbed.text for p in pairs] == ["Line one", "Line two", "Line three"]
 
 
+def test_align_excludes_marginal_boundary_overlap_but_keeps_substantial_overlap():
+    # 실사용에서 발견된 문제: 문장 경계가 영어 줄 경계와 정확히 일치하지 않아
+    # 이웃 한국어 문장이 영어 줄과 아주 살짝(여기서는 0.5초, 짧은 쪽 길이의 33%)만
+    # 겹치는 경우, 그 문장까지 통째로 끌려와 상관없는 영어 줄에 엉뚱하게 긴
+    # 한국어가 붙어버렸다(실측 확인). 겹침 비율이 낮으면 제외되어야 한다.
+    sentence_a = kr(150.7, 153.0, "자기야 난 정말 자기 사랑하는거 알지?")  # 영어 줄과 72% 겹침
+    sentence_b = kr(153.0, 154.5, "어 자기야 자기.")  # 영어 줄과 33%만 겹침 (경계)
+    en_line = en(151.7, 153.5, "I don't like this place. Let's.")
+    next_en_line = en(153.6, 154.6, "hey, Pay up or else.")
+
+    pairs = align(korean=[sentence_a, sentence_b], dubbed=[en_line, next_en_line])
+
+    line_pair = next(p for p in pairs if p.dubbed.text == en_line.text)
+    assert line_pair.korean.text == "자기야 난 정말 자기 사랑하는거 알지?"
+    assert "자기야 자기" not in line_pair.korean.text  # 경계에 살짝 겹친 문장은 제외
+
+
 def test_align_merges_multiple_korean_segments_overlapping_one_dubbed_line():
     # 반대로 짧은 한국어 세그먼트 여러 개가 영어 자막 한 줄에 걸쳐 있으면
     # 텍스트를 이어붙여서 하나로 합친다.
