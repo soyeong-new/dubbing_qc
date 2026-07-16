@@ -158,3 +158,46 @@ async def test_pipeline_passes_kr_audio_path_to_panel_for_director(job_files, mo
         movie_title="t", en_srt_path=en, kr_srt_path=kr, stem_audio_path=stem,
     ))
     assert result.verdict.status in ("pass", "conditional", "fail")
+
+
+async def test_pipeline_runs_dialogue_timing_sync_when_both_audio_present(job_files, monkeypatch, tmp_path):
+    monkeypatch.setenv("QC_PROVIDER", "mock")
+    monkeypatch.setattr("app.core.accent.classify_accent", _fake_classify_accent)
+    en, kr, stem = job_files
+    # 원본 오디오도 있어야 발화 타이밍 체크가 돈다 (job_files 픽스처는 stem만 제공)
+    kr_audio = tmp_path / "kr_audio.wav"
+    rate, samples = 16000, []
+    for i in range(rate * 7):
+        samples.append(int(8000 * math.sin(2 * math.pi * 440 * i / rate)))
+    with wave.open(str(kr_audio), "wb") as w:
+        w.setnchannels(1); w.setsampwidth(2); w.setframerate(rate)
+        w.writeframes(struct.pack(f"{len(samples)}h", *samples))
+
+    pipeline = QCPipeline(provider=get_provider())
+    result = await pipeline.run(QCJobInput(
+        movie_title="t", en_srt_path=en, kr_srt_path=kr,
+        kr_audio_path=str(kr_audio), stem_audio_path=stem,
+    ))
+    # 예외 없이 완료되면 충분하다 — 두 트랙 모두 같은 사인파라 실제로 타이밍이
+    # 어긋날 이유가 없어 finding이 없어도 정상이다. 여기서는 "두 오디오가 모두 있을 때
+    # 크래시 없이 파이프라인이 이 체크를 실행한다"는 배선 자체를 검증한다.
+    assert result.verdict.status in ("pass", "conditional", "fail")
+
+
+async def test_pipeline_survives_dialogue_timing_sync_failure(job_files, monkeypatch):
+    monkeypatch.setenv("QC_PROVIDER", "mock")
+    monkeypatch.setattr("app.core.accent.classify_accent", _fake_classify_accent)
+    en, kr, stem = job_files
+
+    def raise_extract(src, start, end):
+        raise RuntimeError("ffmpeg 실패")
+
+    monkeypatch.setattr("app.core.rule_checks.extract_clip", raise_extract)
+    pipeline = QCPipeline(provider=get_provider())
+    # kr_audio_path를 stem과 같은 파일로 재사용해 체크가 시도되게 하되, extract_clip이
+    # 실패하도록 몽키패치했으므로 우아하게 건너뛰어야 한다 (전체 파이프라인은 안 죽음).
+    result = await pipeline.run(QCJobInput(
+        movie_title="t", en_srt_path=en, kr_srt_path=kr,
+        kr_audio_path=stem, stem_audio_path=stem,
+    ))
+    assert all(f.issue_type != "발화 타이밍 불일치" for f in result.findings)

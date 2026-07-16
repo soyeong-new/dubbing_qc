@@ -5,7 +5,7 @@ from app.providers.base import ModelProvider, get_provider
 from app.core.ingest import load_text_source
 from app.core.alignment import align, assign_scenes, group_by_scene
 from app.core.rule_checks import (
-    run_text_checks, check_audio_quality, check_srt_audio_match, check_sensitive_words,
+    run_text_checks, check_audio_quality, check_dialogue_timing_sync, check_sensitive_words,
 )
 from app.core.accent import check_accent_conformance
 from app.core.judge_panel import run_panel
@@ -25,9 +25,9 @@ class QCPipeline:
 
         # ① 텍스트 수집 (SRT 우선, STT 폴백)
         notify("ingest", 0, 2)
-        korean = await load_text_source("ko", job.kr_srt_path, job.kr_audio_path, provider)
+        korean = await load_text_source("ko", job.kr_srt_path, job.kr_audio_path)
         notify("ingest", 1, 2)
-        dubbed = await load_text_source("en", job.en_srt_path, None, provider)
+        dubbed = await load_text_source("en", job.en_srt_path, None)
         notify("ingest", 2, 2)
 
         # ② 정렬 + 씬 배정
@@ -40,7 +40,16 @@ class QCPipeline:
         findings = run_text_checks(pairs) + check_sensitive_words(pairs)
         if job.stem_audio_path:
             findings += check_audio_quality(job.stem_audio_path, pairs)
-            findings += await check_srt_audio_match(pairs, job.stem_audio_path, provider)
+            if job.kr_audio_path:
+                try:
+                    # check_dialogue_timing_sync는 세그먼트마다 ffmpeg 클립 추출(동기
+                    # subprocess)과 RMS 신호 분석을 동기로 수행한다 — asyncio 이벤트
+                    # 루프를 막지 않도록 스레드로 넘긴다.
+                    findings += await asyncio.to_thread(
+                        check_dialogue_timing_sync, pairs, job.kr_audio_path, job.stem_audio_path
+                    )
+                except Exception as e:
+                    print(f"[파이프라인] 발화 타이밍 동기화 체크 실패, 해당 체크 없이 진행: {e}")
             try:
                 # check_accent_conformance는 세그먼트마다 ffmpeg 클립 추출(동기 subprocess)과
                 # SpeechBrain 추론을 동기로 수행한다 — asyncio 이벤트 루프를 막지 않도록

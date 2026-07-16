@@ -1,4 +1,3 @@
-import asyncio
 import math
 import os
 import struct
@@ -9,7 +8,6 @@ from pathlib import Path
 from typing import List
 import yaml
 from app.schemas import AlignedPair, QCFinding
-from app.providers.base import ModelProvider
 
 
 def _finding(kind: str, pair: AlignedPair, severity: str, issue_type: str,
@@ -187,40 +185,6 @@ def extract_clip(src: str, start: float, end: float) -> str:
         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True,
     )
     return out
-
-
-async def check_srt_audio_match(pairs: List[AlignedPair], stem_wav_path: str,
-                                provider: ModelProvider, extract_clip_fn=extract_clip,
-                                sample_every: int = 10) -> List[QCFinding]:
-    """Check if dubbed audio matches the SRT text via transcription."""
-    findings = []
-    targets = [p for p in pairs if p.dubbed and p.dubbed.text.strip()][::sample_every]
-    for p in targets:
-        # extract_clip_fn은 ffmpeg를 동기 호출한다 — asyncio 이벤트 루프를
-        # 막지 않도록 스레드로 넘긴다.
-        heard = None
-        for attempt in (1, 2):
-            try:
-                clip = await asyncio.to_thread(
-                    extract_clip_fn, stem_wav_path, p.dubbed.start, p.dubbed.end)
-                heard = await provider.transcribe(clip, lang="en")
-                break
-            except Exception as e:
-                # STT 응답이 깨진 JSON이거나 클립 추출이 실패해도 한 세그먼트
-                # 때문에 전체 QC가 죽으면 안 된다 — 1회 재시도 후 건너뛴다.
-                if attempt == 2:
-                    print(f"[룰체크] {p.id} 자막-음성 대조 실패 (2회 시도), 건너뜀: {e}")
-        if heard is None:
-            continue
-        heard_text = " ".join(s.text for s in heard)
-        if _token_similarity(p.dubbed.text, heard_text) < 0.4:
-            findings.append(_finding(
-                "srtmatch", p, "medium", "자막-음성 불일치", "언어 적합성",
-                f"SRT 자막과 실제 더빙 음성이 다르게 들립니다. "
-                f"(음성 인식 결과: \"{heard_text[:80]}\") 누락/애드리브/다른 테이크 여부를 확인하세요.",
-                "Verify the recorded line against the final script.",
-            ))
-    return findings
 
 
 def _find_speech_onset(samples, rate, threshold: float = 100, frame_ms: int = 100):
