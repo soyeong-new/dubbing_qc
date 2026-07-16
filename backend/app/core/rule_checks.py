@@ -223,6 +223,56 @@ async def check_srt_audio_match(pairs: List[AlignedPair], stem_wav_path: str,
     return findings
 
 
+def _find_speech_onset(samples, rate, threshold: float = 100, frame_ms: int = 100):
+    """구간 내에서 무음이 아닌(발화가 시작되는) 첫 프레임의 시각(초)을 반환한다.
+    발화가 감지되지 않으면 None을 반환한다."""
+    frame = max(1, int(rate * frame_ms / 1000))
+    for i in range(0, len(samples), frame):
+        if _rms(samples[i:i + frame]) >= threshold:
+            return i / rate
+    return None
+
+
+def check_dialogue_timing_sync(
+    pairs: List[AlignedPair], kr_audio_path: str, stem_audio_path: str,
+    extract_clip_fn=None, tolerance: float = 0.5, padding: float = 0.5,
+) -> List[QCFinding]:
+    """원본과 더빙, 두 오디오 트랙에서 실제 발화가 같은 시간대에 시작되는지 확인한다.
+
+    자막 내용의 의미가 같은지는 3-페르소나 패널이 오디오를 직접 들으며 이미 판단하므로
+    여기서는 다루지 않는다 — 순수하게 발화 타이밍만 신호처리로 비교한다.
+    """
+    # 기본값을 extract_clip_fn=extract_clip처럼 직접 바인딩하면 정의 시점에 고정돼
+    # 나중에 monkeypatch.setattr("app.core.rule_checks.extract_clip", ...)로 테스트에서
+    # 갈아끼워도 반영되지 않는다 — 반드시 호출 시점에 지연 평가해야 한다.
+    extract_clip_fn = extract_clip_fn or extract_clip
+    findings = []
+    for p in pairs:
+        if not p.korean or not p.dubbed:
+            continue
+        kr_window_start = max(0.0, p.korean.start - padding)
+        en_window_start = max(0.0, p.dubbed.start - padding)
+        kr_clip = extract_clip_fn(kr_audio_path, kr_window_start, p.korean.end + padding)
+        en_clip = extract_clip_fn(stem_audio_path, en_window_start, p.dubbed.end + padding)
+        kr_samples, kr_rate = read_wav_mono(kr_clip)
+        en_samples, en_rate = read_wav_mono(en_clip)
+        kr_onset = _find_speech_onset(kr_samples, kr_rate)
+        en_onset = _find_speech_onset(en_samples, en_rate)
+        if kr_onset is None or en_onset is None:
+            continue
+        kr_global = kr_window_start + kr_onset
+        en_global = en_window_start + en_onset
+        diff = abs(kr_global - en_global)
+        if diff > tolerance:
+            findings.append(_finding(
+                "timingsync", p, "medium", "발화 타이밍 불일치", "싱크 정확도",
+                f"원본과 더빙 오디오의 실제 발화 시작 시점이 {diff:.2f}초 차이납니다.",
+                "Re-check the dubbed audio timing against the original track.",
+                category="voice",
+            ))
+    return findings
+
+
 _DEFAULT_SENSITIVE_WORDS = Path(__file__).parent.parent / "knowledge" / "sensitive_words.yaml"
 
 

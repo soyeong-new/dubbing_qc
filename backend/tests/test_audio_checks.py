@@ -127,3 +127,70 @@ async def test_srt_audio_match_skips_segment_after_persistent_failure(monkeypatc
         extract_clip_fn=lambda src, s, e: src, sample_every=1,
     )
     assert findings == []  # 예외 전파 없이 해당 세그먼트만 건너뜀
+
+
+def test_check_dialogue_timing_sync_flags_offset_onset(tmp_path):
+    from app.core.rule_checks import check_dialogue_timing_sync
+
+    # 원본: 0.5초 무음 후 발화 시작
+    kr_clip = tmp_path / "kr_clip.wav"
+    write_wav(kr_clip, [0] * 8000 + sine(1.0))
+    # 더빙: 1.3초 무음 후 발화 시작 (원본 대비 0.8초 밀림)
+    en_clip = tmp_path / "en_clip.wav"
+    write_wav(en_clip, [0] * 20800 + sine(1.0))
+
+    def fake_extract(src, start, end):
+        return str(kr_clip) if src == "kr_original.wav" else str(en_clip)
+
+    pairs = [pair_at(1.0, 3.0, pid="p1")]
+    findings = check_dialogue_timing_sync(
+        pairs, "kr_original.wav", "en_stem.wav",
+        extract_clip_fn=fake_extract, tolerance=0.5,
+    )
+    assert len(findings) == 1
+    assert findings[0].issue_type == "발화 타이밍 불일치"
+    assert findings[0].axis == "싱크 정확도"
+    assert findings[0].recommendation.isascii()  # recommendation은 반드시 영어
+
+
+def test_check_dialogue_timing_sync_passes_when_aligned(tmp_path):
+    from app.core.rule_checks import check_dialogue_timing_sync
+
+    # 원본/더빙 모두 0.5초 무음 후 발화 시작 (차이 없음)
+    clip = tmp_path / "aligned_clip.wav"
+    write_wav(clip, [0] * 8000 + sine(1.0))
+
+    findings = check_dialogue_timing_sync(
+        pairs=[pair_at(1.0, 3.0, pid="p1")],
+        kr_audio_path="kr.wav", stem_audio_path="en.wav",
+        extract_clip_fn=lambda src, s, e: str(clip), tolerance=0.5,
+    )
+    assert findings == []
+
+
+def test_check_dialogue_timing_sync_skips_when_either_side_missing():
+    from app.core.rule_checks import check_dialogue_timing_sync
+    from app.schemas import AlignedPair, SegmentText
+
+    pairs = [AlignedPair(
+        id="p1", korean=None,
+        dubbed=SegmentText(start=0, end=1, speaker="A", text="hi"),
+    )]
+    findings = check_dialogue_timing_sync(
+        pairs, "kr.wav", "en.wav", extract_clip_fn=lambda s, a, b: s,
+    )
+    assert findings == []
+
+
+def test_check_dialogue_timing_sync_skips_when_no_speech_detected(tmp_path):
+    from app.core.rule_checks import check_dialogue_timing_sync
+
+    silent_clip = tmp_path / "silent.wav"
+    write_wav(silent_clip, [0] * 16000)  # 완전 무음
+
+    findings = check_dialogue_timing_sync(
+        pairs=[pair_at(0.0, 1.0, pid="p1")],
+        kr_audio_path="kr.wav", stem_audio_path="en.wav",
+        extract_clip_fn=lambda src, s, e: str(silent_clip),
+    )
+    assert findings == []
