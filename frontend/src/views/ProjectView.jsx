@@ -30,13 +30,13 @@ export default function ProjectView({ uploads, setUploads, onJobComplete }) {
 
   const handleFile = async (role, file) => {
     if (!file) return;
-    setUploads((u) => ({ ...u, [role]: { name: file.name, uploading: true } }));
+    setUploads((u) => ({ ...u, [role]: { name: file.name, uploading: true, file } }));
     const res = await uploadMedia(file, role);
     setUploads((u) => ({
       ...u,
       [role]: res.success
-        ? { name: file.name, ...res, uploading: false }
-        : { name: file.name, error: res.error, uploading: false },
+        ? { name: file.name, file, ...res, uploading: false }
+        : { name: file.name, file, error: res.error, uploading: false },
     }));
   };
 

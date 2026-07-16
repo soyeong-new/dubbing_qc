@@ -33,28 +33,14 @@ function App() {
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(10.0);
+  const DEFAULT_DUBBED_SAMPLE = "https://assets.mixkit.co/videos/preview/mixkit-cyberpunk-city-street-at-night-40134-large.mp4";
   const [originalVideoSrc, setOriginalVideoSrc] = useState(null);
-  const [dubbedVideoSrc, setDubbedVideoSrc] = useState("https://assets.mixkit.co/videos/preview/mixkit-cyberpunk-city-street-at-night-40134-large.mp4");
+  const [dubbedVideoSrc, setDubbedVideoSrc] = useState(DEFAULT_DUBBED_SAMPLE);
   const [activeVideoRole, setActiveVideoRole] = useState("dubbed");
-
-  // File names for display
-  const [videoFileName, setVideoFileName] = useState("cyberpunk_city.mp4 (기본 샘플)");
-
-  // Real waveform & backend audio path states
-  const [waveformPeaks, setWaveformPeaks] = useState([]);
-  const [backendAudioPath, setBackendAudioPath] = useState(null);
-  const [uploadingVideo, setUploadingVideo] = useState(false);
-
-  // Original media (Review 탭에서 원본 재생용 — QC 실행과는 무관)
-  const [originalMediaName, setOriginalMediaName] = useState("선택되지 않음");
-  const [originalAudioPath, setOriginalAudioPath] = useState(null);
-  const [uploadingOriginal, setUploadingOriginal] = useState(false);
 
   const videoRef = useRef(null);
   const canvasRef = useRef(null);
   const animationRef = useRef(null);
-  const videoInputRef = useRef(null);
-  const originalInputRef = useRef(null);
 
   // 1. Job completion handler — 백엔드 QC 잡의 결과(QCResult)를 검수/리포트 뷰
   // 상태로 반영한다. 여기서 옮겨지는 findings/segments는 실제 백엔드 파이프라인
@@ -76,84 +62,23 @@ function App() {
     setView("review");
   };
 
-  // 2. File Upload Handlers
-  const handleOriginalUpload = async (e) => {
-    const file = e.target.files[0];
-    if (file) {
-      const url = URL.createObjectURL(file);
-      setOriginalVideoSrc(url);
-      setOriginalMediaName(file.name);
-      setActiveVideoRole("original");
-      setIsPlaying(false);
-      if (videoRef.current) {
-        videoRef.current.load();
-      }
+  // 2. Video preview — Project 탭에서 이미 업로드된 File 객체로 로컬 blob URL만 생성한다.
+  // 서버에 다시 업로드하지 않는다 (검수 탭 전용 중복 업로드였던 것을 제거).
+  useEffect(() => {
+    const file = uploads.original?.file;
+    if (!file) return;
+    const url = URL.createObjectURL(file);
+    setOriginalVideoSrc(url);
+    return () => URL.revokeObjectURL(url);
+  }, [uploads.original?.file]);
 
-      setUploadingOriginal(true);
-      const formData = new FormData();
-      formData.append("file", file);
-
-      try {
-        const res = await fetch("http://localhost:8000/api/qc/upload-media?role=original", {
-          method: "POST",
-          body: formData,
-        });
-        const data = await res.json();
-        if (data.success) {
-          setOriginalAudioPath(data.audio_path);
-          console.log("Original media uploaded successfully:", data);
-        } else {
-          console.error("Original media upload failed:", data.error);
-          setAnalysisError(`원본 미디어 업로드 실패: ${data.error || "알 수 없는 오류"}`);
-        }
-      } catch (err) {
-        console.error("Error uploading original media:", err);
-        setAnalysisError(`원본 미디어 업로드 실패: ${err.message}`);
-      } finally {
-        setUploadingOriginal(false);
-      }
-    }
-  };
-
-  const handleVideoUpload = async (e) => {
-    const file = e.target.files[0];
-    if (file) {
-      const url = URL.createObjectURL(file);
-      setDubbedVideoSrc(url);
-      setVideoFileName(file.name);
-      setActiveVideoRole("dubbed");
-      setIsPlaying(false);
-      if (videoRef.current) {
-        videoRef.current.load();
-      }
-
-      // Upload to backend to extract audio and compute waveform
-      setUploadingVideo(true);
-      const formData = new FormData();
-      formData.append("file", file);
-
-      try {
-        const res = await fetch("http://localhost:8000/api/qc/upload-media?role=dubbed", {
-          method: "POST",
-          body: formData,
-        });
-        const data = await res.json();
-        if (data.success) {
-          setWaveformPeaks(data.waveform);
-          setBackendAudioPath(data.audio_path);
-          console.log("Video uploaded and audio/waveform extracted successfully:", data);
-        } else {
-          console.error("Video upload failed:", data.error);
-          setAnalysisError(`영상 업로드 실패: ${data.error || "알 수 없는 오류"}`);
-        }
-      } catch (err) {
-        console.error("Error uploading video:", err);
-        setAnalysisError(`영상 업로드 실패: ${err.message}`);
-      } finally {
-        setUploadingVideo(false);
-      }
-    }
-  };
+  useEffect(() => {
+    const file = uploads.dubbed?.file;
+    if (!file) return;
+    const url = URL.createObjectURL(file);
+    setDubbedVideoSrc(url);
+    return () => URL.revokeObjectURL(url);
+  }, [uploads.dubbed?.file]);
 
   const updateStats = (currentFindings) => {
     const highCnt = currentFindings.filter(f => f.severity === "high").length;
@@ -329,6 +254,7 @@ function App() {
       ctx.lineTo(width, height / 2);
       ctx.stroke();
 
+      const waveformPeaks = uploads.dubbed?.waveform;
       if (waveformPeaks && waveformPeaks.length > 0) {
         // Draw real waveform
         const numPeaks = waveformPeaks.length;
@@ -389,7 +315,7 @@ function App() {
       cancelAnimationFrame(animationRef.current);
       resizeObserver.disconnect();
     };
-  }, [isPlaying, currentTime, duration, waveformPeaks]);
+  }, [isPlaying, currentTime, duration, uploads.dubbed?.waveform]);
 
   const filteredFindings = findings.filter(f => {
     const matchesCategory = filter === "all" || f.category === filter;
@@ -432,36 +358,17 @@ function App() {
           </div>
         </div>
 
-        {/* 재생용 미디어 등록 (Review 탭 전용 — QC 실행은 프로젝트 탭에서 이미 완료된 잡의 결과다) */}
+        {/* 재생 상태 표시 (Review 탭 전용 — 업로드는 프로젝트 탭에서 이미 완료됨) */}
         <div className="header-file-panel">
-          {/* 1. Original KR Media */}
           <div className="file-uploader-box">
-            <span className="file-label" title={originalMediaName}>🎙️ 원본 영상/음성 (KR): {originalMediaName}</span>
-            <button className="btn-file-select" onClick={() => originalInputRef.current.click()} disabled={uploadingOriginal}>
-              {uploadingOriginal ? "업로드 중..." : (originalAudioPath ? "등록 완료 ✓" : "미디어 등록")}
-            </button>
-            <input
-              type="file"
-              ref={originalInputRef}
-              style={{ display: "none" }}
-              accept="video/*,audio/*"
-              onChange={handleOriginalUpload}
-            />
+            <span className="file-label" title={uploads.original?.name}>
+              🎙️ 원본 영상/음성 (KR): {uploads.original?.name || "선택되지 않음"}
+            </span>
           </div>
-
-          {/* 2. Dubbed EN Media */}
           <div className="file-uploader-box">
-            <span className="file-label" title={videoFileName}>🔊 영어 더빙 영상/음성: {videoFileName}</span>
-            <button className="btn-file-select" onClick={() => videoInputRef.current.click()} disabled={uploadingVideo}>
-              {uploadingVideo ? "분석 중..." : (backendAudioPath ? "등록 완료 ✓" : "미디어 등록")}
-            </button>
-            <input
-              type="file"
-              ref={videoInputRef}
-              style={{ display: "none" }}
-              accept="video/*,audio/*"
-              onChange={handleVideoUpload}
-            />
+            <span className="file-label" title={uploads.dubbed?.name}>
+              🔊 영어 더빙 영상/음성: {uploads.dubbed?.name || "선택되지 않음"}
+            </span>
           </div>
         </div>
 
