@@ -1,5 +1,4 @@
-import math
-from typing import Callable, List, Optional, Tuple
+from typing import Callable, List, Optional
 from app.schemas import SegmentText
 
 MODEL_ID = "batiai/batisay-ko-turbo"
@@ -40,12 +39,20 @@ def _run_pipeline(audio_path: str) -> list:
     logprob_threshold/compression_ratio_threshold/no_speech_threshold가 내부적으로
     None과 비교 연산을 하다 크래시한다(TypeError, UnboundLocalError 둘 다 실측 확인) —
     temperature를 Whisper 표준 폴백 시퀀스로 명시하면 전부 정상 동작한다(실측 확인).
+
+    오디오는 무음 기준으로 직접 잘라 개별 호출하지 않고 전체 파일을 한 번에 넣는다 —
+    비명/소음 구간만 통째로 떼어내 별도 호출하면 그 구간 안에 모델이 참고할 진짜
+    발화가 전혀 없어 반복 환각이 오히려 심해지는 것을 실측으로 확인했다(같은 억제
+    설정인데도 "아아아아..." 식 반복이 여러 구간에서 여러 번 나타남). 전체를 한 번에
+    넣어 파이프라인 자체의 30초+겹침 청킹에 맡기면, 문제 구간도 앞뒤에 진짜 발화가
+    있는 하나의 연속된 흐름 안에 놓여 훨씬 안정적으로 디코딩된다(같은 설정으로 반복
+    환각이 사실상 사라짐을 실측 확인).
     """
     pipe = _get_pipeline()
     # return_timestamps="word": 문장(청크) 단위가 아니라 단어 단위로 타임코드를 받는다.
     # 이렇게 해야 뒤의 align 단계에서 영어 자막 한 줄 한 줄의 시간 구간에 실제로 나온
-    # 한국어 단어들만 골라 붙일 수 있다 — 문장 단위 타임코드만 받으면 25초짜리 덩어리
-    # 전체가 영어 한 줄에 통째로 붙어 검수(페르소나 패널)가 "안 맞는다"고 오판한다.
+    # 한국어 단어들만 골라 붙일 수 있다 — 문장 단위 타임코드만 받으면 덩어리 전체가
+    # 영어 한 줄에 통째로 붙어 검수(페르소나 패널)가 "안 맞는다"고 오판한다.
     result = pipe(
         audio_path, return_timestamps="word",
         generate_kwargs={
@@ -60,63 +67,14 @@ def _run_pipeline(audio_path: str) -> list:
     return result.get("chunks", [])
 
 
-def _rms(chunk) -> float:
-    if not chunk:
-        return 0.0
-    return math.sqrt(sum(s * s for s in chunk) / len(chunk))
-
-
-def _detect_speech_windows(
-    samples, rate: int, silence_threshold: float = 100, min_silence_s: float = 0.5,
-    max_window_s: float = 25.0, frame_ms: int = 100,
-) -> List[Tuple[float, float]]:
-    """RMS 에너지로 무음 구간을 찾아, 그 사이의 발화 구간을 (start, end) 절대 초 단위로
-    반환한다. Whisper의 30초 입력 제약을 피하기 위해 한 발화 구간이 max_window_s를
-    넘으면 강제로 나눈다 — 짧은 자연스러운 휴지(min_silence_s 미만)는 발화가 이어지는
-    것으로 보고 하나로 유지한다(문장 중간의 숨쉬기 등으로 과도하게 쪼개지지 않도록).
-    """
-    frame = max(1, int(rate * frame_ms / 1000))
-    frame_count = len(samples) // frame or 1
-    min_silence_frames = max(1, int(min_silence_s * 1000 / frame_ms))
-
-    raw_windows: List[Tuple[int, int]] = []
-    seg_start = None
-    silent_run = 0
-    for i in range(frame_count):
-        chunk = samples[i * frame:(i + 1) * frame]
-        if _rms(chunk) >= silence_threshold:
-            if seg_start is None:
-                seg_start = i
-            silent_run = 0
-        elif seg_start is not None:
-            silent_run += 1
-            if silent_run >= min_silence_frames:
-                raw_windows.append((seg_start, i - silent_run + 1))
-                seg_start = None
-                silent_run = 0
-    if seg_start is not None:
-        raw_windows.append((seg_start, frame_count))
-
-    windows: List[Tuple[float, float]] = []
-    for s, e in raw_windows:
-        start_s = s * frame_ms / 1000.0
-        end_s = e * frame_ms / 1000.0
-        while end_s - start_s > max_window_s:
-            windows.append((start_s, start_s + max_window_s))
-            start_s += max_window_s
-        if end_s > start_s:
-            windows.append((start_s, end_s))
-    return windows
-
-
 _SENTENCE_END = (".", "?", "!", "…")
 
 
-def _group_words_into_sentences(words: list, offset: float) -> List[SegmentText]:
+def _group_words_into_sentences(words: list, offset: float = 0.0) -> List[SegmentText]:
     """단어 단위 타임코드 리스트를 문장 끝 부호(. ? ! …) 기준으로 문장으로 묶고,
     각 문장에 그 문장을 구성한 단어들의 절대 타임코드(첫 단어 시작 ~ 끝 단어 끝)를
-    부여한다. offset은 이 클립이 원본 전체에서 시작하는 절대 시각으로, 클립 상대
-    타임스탬프에 더해 원본 타임라인 기준으로 복원한다."""
+    부여한다. offset은 기본 0.0 — transcribe_korean이 오디오 전체를 한 번에 넣으므로
+    Whisper가 돌려주는 타임스탬프가 이미 원본 전체 타임라인 기준 절대 시간이다."""
     sentences: List[SegmentText] = []
     cur_texts: List[str] = []
     cur_start: Optional[float] = None
@@ -141,7 +99,7 @@ def _group_words_into_sentences(words: list, offset: float) -> List[SegmentText]
                 text=" ".join(cur_texts),
             ))
             cur_texts, cur_start, cur_end = [], None, None
-    if cur_texts:  # 문장 끝 부호 없이 클립이 끝난 나머지 단어들도 한 문장으로
+    if cur_texts:  # 문장 끝 부호 없이 오디오가 끝난 나머지 단어들도 한 문장으로
         sentences.append(SegmentText(
             start=round(cur_start, 3), end=round(cur_end, 3),
             text=" ".join(cur_texts),
@@ -152,30 +110,17 @@ def _group_words_into_sentences(words: list, offset: float) -> List[SegmentText]
 def transcribe_korean(
     audio_path: str,
     transcribe_fn: Optional[Callable[[str], list]] = None,
-    extract_clip_fn: Optional[Callable[[str, float, float], str]] = None,
 ) -> List[SegmentText]:
-    """원본 오디오를 무음 기준으로 발화 구간마다 잘라(각 구간은 Whisper의 30초 제약
-    안에 들도록 보장됨) 개별적으로 전사한다. _run_pipeline이 단어 단위
-    (return_timestamps="word")로 돌려주지만, 검수 단위로는 단어가 너무 잘게 쪼개져
-    부자연스러우므로 문장 끝 부호 기준으로 다시 문장으로 묶는다. 각 문장은 그 문장을
-    구성한 단어들의 타임코드를 갖고, 클립 상대 시각을 구간의 원래 절대 시작 시각에
-    더해 원본 전체 타임라인 기준으로 복원한다. 이 오프셋 복원을 빠뜨리면 모든 문장이
-    "0초부터 시작한 것처럼" 잘못된 타임코드를 갖게 되므로 반드시 필요하다.
+    """원본 오디오 전체를 한 번에 Whisper에 넣어(무음 기준으로 직접 잘라 개별
+    호출하지 않음 — _run_pipeline의 docstring 참고, 비명/소음 구간을 통째로 떼어
+    별도 호출하면 반복 환각이 오히려 심해짐을 실측 확인) 단어 단위로 전사한다.
+    검수 단위로는 단어가 너무 잘게 쪼개져 부자연스러우므로 문장 끝 부호 기준으로
+    다시 문장으로 묶는다. Whisper가 돌려주는 타임스탬프가 이미 원본 전체 타임라인
+    기준이므로 별도 오프셋 복원이 필요 없다.
 
     결과적으로 문장 단위 + 정확한 타임코드가 되어, 뒤의 align 단계가 영어 자막 줄의
     시간 구간에 맞는 한국어 문장을 정확히 골라 붙일 수 있다.
     """
-    from app.core.rule_checks import read_wav_mono, extract_clip as default_extract_clip
-
     transcribe_fn = transcribe_fn or _run_pipeline
-    extract_clip_fn = extract_clip_fn or default_extract_clip
-
-    samples, rate = read_wav_mono(audio_path)
-    windows = _detect_speech_windows(samples, rate)
-
-    segments: List[SegmentText] = []
-    for window_start, window_end in windows:
-        clip_path = extract_clip_fn(audio_path, window_start, window_end)
-        words = transcribe_fn(clip_path)
-        segments.extend(_group_words_into_sentences(words, window_start))
-    return segments
+    words = transcribe_fn(audio_path)
+    return _group_words_into_sentences(words)
