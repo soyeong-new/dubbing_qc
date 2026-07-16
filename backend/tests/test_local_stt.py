@@ -53,9 +53,12 @@ def test_transcribe_korean_does_not_import_transformers_at_module_load(monkeypat
     assert len(segments) == 1
 
 
-def test_run_pipeline_forces_korean_language(monkeypatch):
-    # 언어 자동 감지에 맡기면 무음/전환 구간에서 다른 언어가 섞여 나오는 환각이
-    # 발생한다(실측 확인) — language를 한국어로 고정해야 한다.
+def test_run_pipeline_forces_korean_language_and_suppresses_hallucination(monkeypatch):
+    # 언어 자동 감지에 맡기면 다른 언어가 섞여 나오는 환각이, 억제 옵션 없이는
+    # 비명/소음 구간에서 반복 환각이 발생한다(둘 다 실측 확인) — language 고정 +
+    # 문맥 비조건화 + 무음/반복 억제 임계값이 모두 필요하다. temperature 폴백
+    # 시퀀스를 명시하지 않으면 이 임계값들이 내부적으로 크래시한다(실측 확인)이므로
+    # 반드시 함께 지정해야 한다.
     captured = {}
 
     class FakePipe:
@@ -72,10 +75,8 @@ def test_run_pipeline_forces_korean_language(monkeypatch):
     gk = captured["generate_kwargs"]
     assert gk["language"] == "korean"
     assert gk["task"] == "transcribe"
-    # condition_on_prev_tokens/no_speech_threshold 등 폴백 옵션은 의도적으로 넣지 않는다 —
-    # 이 transformers 버전에서 모델 내장 generation_config와 상호작용하며 크래시한다
-    # (TypeError, UnboundLocalError 둘 다 실측 확인).
-    assert "condition_on_prev_tokens" not in gk
-    assert "no_speech_threshold" not in gk
-    assert "logprob_threshold" not in gk
-    assert "compression_ratio_threshold" not in gk
+    assert gk["condition_on_prev_tokens"] is False
+    assert "no_speech_threshold" in gk
+    assert "logprob_threshold" in gk
+    assert "compression_ratio_threshold" in gk
+    assert gk["temperature"] == (0.0, 0.2, 0.4, 0.6, 0.8, 1.0)

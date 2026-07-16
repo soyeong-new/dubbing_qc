@@ -32,18 +32,25 @@ def _run_pipeline(audio_path: str) -> list:
     실제 모델 로드를 피한다.
 
     언어를 자동 감지에 맡기면 무음/전환 구간에서 다른 언어(중국어·일본어·프랑스어 등)가
-    섞여 나오는 환각이 발생한다(실측 확인) — language를 한국어로 고정해 이를 막는다.
-
-    주의: condition_on_prev_tokens=False나 no_speech_threshold 같은 폴백/억제 옵션은
-    일부러 넣지 않는다 — 이 특정 transformers 버전에서 모델에 내장된 generation_config와
-    상호작용하며 내부적으로 크래시(TypeError, UnboundLocalError)를 일으키는 것을 실측으로
-    확인했다. 언어 고정만으로 관찰된 핵심 문제(다른 언어 혼입)는 해결되며, 나머지
-    환각 억제는 이 버전 조합에서는 불안정해 보류한다.
+    섞여 나오는 환각이 발생하고(실측 확인), condition_on_prev_tokens/no_speech_threshold
+    같은 억제 옵션 없이는 비명·소음 구간에서 같은 단어를 수백 번 반복하는 환각도
+    발생한다(원본 openai/whisper-large-v3-turbo로도 동일 재현 확인 — 이 모델만의 문제가
+    아니라 Whisper 계열 공통 문제). temperature 폴백 시퀀스를 명시적으로 지정하지 않으면
+    logprob_threshold/compression_ratio_threshold/no_speech_threshold가 내부적으로
+    None과 비교 연산을 하다 크래시한다(TypeError, UnboundLocalError 둘 다 실측 확인) —
+    temperature를 Whisper 표준 폴백 시퀀스로 명시하면 전부 정상 동작한다(실측 확인).
     """
     pipe = _get_pipeline()
     result = pipe(
         audio_path, return_timestamps=True,
-        generate_kwargs={"language": "korean", "task": "transcribe"},
+        generate_kwargs={
+            "language": "korean", "task": "transcribe",
+            "condition_on_prev_tokens": False,
+            "no_speech_threshold": 0.6,
+            "logprob_threshold": -1.0,
+            "compression_ratio_threshold": 2.4,
+            "temperature": (0.0, 0.2, 0.4, 0.6, 0.8, 1.0),
+        },
     )
     return result.get("chunks", [])
 
