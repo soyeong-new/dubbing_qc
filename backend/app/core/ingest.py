@@ -1,7 +1,7 @@
+import asyncio
 import re
 from typing import List, Optional
 from app.schemas import SegmentText
-from app.providers.base import ModelProvider
 
 _TIME_RE = re.compile(
     r"(\d{2}):(\d{2}):(\d{2})[,.](\d{3})\s*-->\s*(\d{2}):(\d{2}):(\d{2})[,.](\d{3})"
@@ -32,11 +32,13 @@ def parse_srt(content: str) -> List[SegmentText]:
 
 
 async def load_text_source(lang: str, srt_path: Optional[str],
-                           audio_path: Optional[str],
-                           provider: ModelProvider) -> List[SegmentText]:
+                           audio_path: Optional[str]) -> List[SegmentText]:
     if srt_path:
         with open(srt_path, encoding="utf-8-sig") as f:
             return parse_srt(f.read())
-    if audio_path:
-        return await provider.transcribe(audio_path, lang)
-    raise ValueError(f"{lang}: SRT 또는 오디오 중 하나는 제공되어야 합니다.")
+    if audio_path and lang == "ko":
+        from app.core.local_stt import transcribe_korean
+        # transcribe_korean은 transformers 파이프라인을 동기로 호출한다 — asyncio
+        # 이벤트 루프를 막지 않도록 스레드로 넘긴다.
+        return await asyncio.to_thread(transcribe_korean, audio_path)
+    raise ValueError(f"{lang}: SRT 또는 지원되는 오디오 STT 경로가 필요합니다.")
