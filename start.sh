@@ -31,7 +31,7 @@ echo "============================================="
 # 1. Start backend
 echo "🚀 Starting FastAPI Backend..."
 cd backend
-./venv/bin/uvicorn app.main:app --host 127.0.0.1 --port 8000 > /dev/null 2>&1 &
+./venv/bin/uvicorn app.main:app --host 127.0.0.1 --port 8000 > backend.log 2>&1 &
 BACKEND_PID=$!
 cd ..
 
