@@ -1,73 +1,8 @@
 import app.core.local_stt as local_stt
-from app.core.local_stt import transcribe_korean, _group_words_into_sentences
+from app.core.local_stt import transcribe_korean
 
 
-# ---- _group_words_into_sentences: 단어 → 문장 묶기 ----
-
-def test_group_words_into_sentences_splits_on_sentence_end():
-    words = [
-        {"text": " 밥", "timestamp": (0.0, 0.4)},
-        {"text": " 먹었어?", "timestamp": (0.4, 1.0)},
-        {"text": " 어이가", "timestamp": (1.5, 2.0)},
-        {"text": " 없네.", "timestamp": (2.0, 2.6)},
-    ]
-    sents = _group_words_into_sentences(words)
-    assert len(sents) == 2
-    assert sents[0].text == "밥 먹었어?"
-    assert sents[0].start == 0.0 and sents[0].end == 1.0
-    assert sents[1].text == "어이가 없네."
-    assert sents[1].start == 1.5 and sents[1].end == 2.6
-
-
-def test_group_words_into_sentences_applies_offset():
-    words = [{"text": " 대사.", "timestamp": (0.2, 0.9)}]
-    sents = _group_words_into_sentences(words, offset=100.0)
-    assert sents[0].start == 100.2 and sents[0].end == 100.9
-
-
-def test_group_words_into_sentences_flushes_trailing_words_without_punctuation():
-    words = [
-        {"text": " 끝나지", "timestamp": (0.0, 0.5)},
-        {"text": " 않은", "timestamp": (0.5, 1.0)},
-    ]
-    sents = _group_words_into_sentences(words)
-    assert len(sents) == 1
-    assert sents[0].text == "끝나지 않은"
-
-
-def test_group_words_into_sentences_guards_collapsed_word_timestamps():
-    # Whisper가 단어 종료 타임을 시작과 같게 붕괴시켜 end가 앞 단어보다 작아질 수 있다.
-    words = [
-        {"text": " 첫", "timestamp": (0.0, 1.0)},
-        {"text": " 단어.", "timestamp": (0.5, 0.5)},
-    ]
-    sents = _group_words_into_sentences(words)
-    assert len(sents) == 1
-    assert sents[0].start == 0.0
-    assert sents[0].end == 1.0  # max로 단조 증가 보장 (0.5로 뒷걸음치지 않음)
-
-
-def test_group_words_into_sentences_skips_empty_words():
-    words = [
-        {"text": "   ", "timestamp": (0.0, 0.3)},
-        {"text": " 실제", "timestamp": (0.3, 0.8)},
-        {"text": " 대사.", "timestamp": (0.8, 1.5)},
-    ]
-    sents = _group_words_into_sentences(words)
-    assert len(sents) == 1
-    assert sents[0].text == "실제 대사."
-
-
-def test_group_words_into_sentences_handles_open_ended_last_word():
-    # Whisper의 마지막 단어는 종료 타임스탬프가 None일 수 있다
-    words = [{"text": " 마지막.", "timestamp": (10.0, None)}]
-    sents = _group_words_into_sentences(words)
-    assert len(sents) == 1
-    assert sents[0].start == 10.0
-    assert sents[0].end == 10.0  # end가 없으면 start로 대체
-
-
-# ---- transcribe_korean: 오디오 전체를 한 번에 넣어 단어를 문장으로 묶기 ----
+# ---- transcribe_korean: 오디오 전체를 한 번에 넣어 단어 그대로 반환 ----
 
 def test_transcribe_korean_calls_transcribe_fn_once_on_whole_file():
     # 무음 기준으로 직접 잘라 여러 번 호출하지 않는다 — 비명/소음 구간만 통째로
@@ -79,17 +14,40 @@ def test_transcribe_korean_calls_transcribe_fn_once_on_whole_file():
         calls.append(audio_path)
         return [
             {"text": " 안녕", "timestamp": (3.1, 3.5)},
-            {"text": " 하세요.", "timestamp": (3.5, 4.0)},
+            {"text": " 하세요", "timestamp": (3.5, 4.0)},
         ]
 
     segments = transcribe_korean("/tmp/original.wav", transcribe_fn=fake_transcribe)
 
     assert calls == ["/tmp/original.wav"]  # 딱 한 번, 원본 경로 그대로
+    assert len(segments) == 2  # 문장으로 미리 묶지 않고 단어 그대로 반환
+    assert segments[0].text == "안녕"
+    assert segments[0].start == 3.1 and segments[0].end == 3.5
+    assert segments[1].text == "하세요"
+    assert segments[1].start == 3.5 and segments[1].end == 4.0
+
+
+def test_transcribe_korean_skips_empty_words():
+    def fake_transcribe(audio_path):
+        return [
+            {"text": "   ", "timestamp": (0.0, 0.3)},
+            {"text": " 실제", "timestamp": (0.3, 0.8)},
+        ]
+
+    segments = transcribe_korean("/tmp/x.wav", transcribe_fn=fake_transcribe)
     assert len(segments) == 1
-    assert segments[0].text == "안녕 하세요."
-    # Whisper가 돌려주는 타임스탬프가 이미 절대 시간이므로 그대로 사용된다.
-    assert segments[0].start == 3.1
-    assert segments[0].end == 4.0
+    assert segments[0].text == "실제"
+
+
+def test_transcribe_korean_handles_open_ended_last_word():
+    # Whisper의 마지막 단어는 종료 타임스탬프가 None일 수 있다
+    def fake_transcribe(audio_path):
+        return [{"text": " 마지막", "timestamp": (10.0, None)}]
+
+    segments = transcribe_korean("/tmp/x.wav", transcribe_fn=fake_transcribe)
+    assert len(segments) == 1
+    assert segments[0].start == 10.0
+    assert segments[0].end == 10.0  # end가 없으면 start로 대체
 
 
 def test_transcribe_korean_does_not_import_transformers_at_module_load(monkeypatch):
@@ -99,7 +57,7 @@ def test_transcribe_korean_does_not_import_transformers_at_module_load(monkeypat
 
     monkeypatch.setattr(local_stt, "_get_pipeline", boom)
     segments = transcribe_korean(
-        "/tmp/x.wav", transcribe_fn=lambda p: [{"text": " ok.", "timestamp": (0.0, 1.0)}],
+        "/tmp/x.wav", transcribe_fn=lambda p: [{"text": " ok", "timestamp": (0.0, 1.0)}],
     )
     assert len(segments) == 1
 

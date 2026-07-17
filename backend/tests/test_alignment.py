@@ -67,6 +67,37 @@ def test_align_excludes_marginal_boundary_overlap_but_keeps_substantial_overlap(
     assert "자기야 자기" not in line_pair.korean.text  # 경계에 살짝 겹친 문장은 제외
 
 
+def test_align_splits_unpunctuated_korean_words_across_separate_english_lines():
+    # 실사용에서 발견된 문제: Whisper가 세 개의 별개 발화("여자가 미쳤나 보네" /
+    # "자기야 우리 그냥 여기서 나가자" / "자기야 나 정말 사랑하는 거 맞아?") 사이에
+    # 문장부호를 안 찍어서, 미리 문장 단위로 묶으면 이 셋이 하나의 덩어리가 되어
+    # 서로 다른 영어 줄 세 개에 전부 똑같이 통째로 붙어버렸다. 해결책은 문장으로
+    # 미리 묶지 않고 단어 그대로 align에 넘기는 것 — 각 영어 줄은 자신의 시간
+    # 구간에 실제로 겹치는 단어들만 시간순으로 받아야 한다(어순은 항상 한국어가
+    # 말해진 시간순이므로 영어 어순과 무관하게 보존된다).
+    words = [
+        kr(146.4, 146.8, "여자가"), kr(146.8, 147.2, "미쳤나"), kr(147.2, 147.6, "보네"),
+        kr(147.9, 148.2, "자기야"), kr(148.2, 148.5, "우리"), kr(148.5, 148.8, "그냥"),
+        kr(148.8, 149.0, "여기서"), kr(149.0, 149.1, "나가자"),
+        kr(149.3, 149.6, "자기야"), kr(149.6, 149.9, "나"), kr(149.9, 150.2, "정말"),
+        kr(150.2, 150.5, "사랑하는"), kr(150.5, 150.6, "거"), kr(150.6, 150.7, "맞아?"),
+    ]
+    dubbed = [
+        en(146.4, 147.7, "This woman's crazy!"),
+        en(147.9, 149.1, "Let's get out of here!"),
+        en(149.3, 150.7, "Honey, do you even love me?!"),
+    ]
+
+    pairs = align(korean=words, dubbed=dubbed)
+
+    line1 = next(p for p in pairs if p.dubbed.text == "This woman's crazy!")
+    line2 = next(p for p in pairs if p.dubbed.text == "Let's get out of here!")
+    line3 = next(p for p in pairs if p.dubbed.text == "Honey, do you even love me?!")
+    assert line1.korean.text == "여자가 미쳤나 보네"
+    assert line2.korean.text == "자기야 우리 그냥 여기서 나가자"
+    assert line3.korean.text == "자기야 나 정말 사랑하는 거 맞아?"
+
+
 def test_align_merges_multiple_korean_segments_overlapping_one_dubbed_line():
     # 반대로 짧은 한국어 세그먼트 여러 개가 영어 자막 한 줄에 걸쳐 있으면
     # 텍스트를 이어붙여서 하나로 합친다.

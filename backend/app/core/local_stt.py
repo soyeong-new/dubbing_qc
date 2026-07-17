@@ -67,46 +67,6 @@ def _run_pipeline(audio_path: str) -> list:
     return result.get("chunks", [])
 
 
-_SENTENCE_END = (".", "?", "!", "…")
-
-
-def _group_words_into_sentences(words: list, offset: float = 0.0) -> List[SegmentText]:
-    """단어 단위 타임코드 리스트를 문장 끝 부호(. ? ! …) 기준으로 문장으로 묶고,
-    각 문장에 그 문장을 구성한 단어들의 절대 타임코드(첫 단어 시작 ~ 끝 단어 끝)를
-    부여한다. offset은 기본 0.0 — transcribe_korean이 오디오 전체를 한 번에 넣으므로
-    Whisper가 돌려주는 타임스탬프가 이미 원본 전체 타임라인 기준 절대 시간이다."""
-    sentences: List[SegmentText] = []
-    cur_texts: List[str] = []
-    cur_start: Optional[float] = None
-    cur_end: Optional[float] = None
-    for w in words:
-        text = w["text"].strip()
-        if not text:
-            continue
-        rel_start, rel_end = w["timestamp"]
-        rel_end = rel_end if rel_end is not None else rel_start
-        abs_start = offset + float(rel_start)
-        abs_end = offset + float(rel_end)
-        if cur_start is None:
-            cur_start = abs_start
-        # Whisper가 단어 종료 타임을 시작과 같게(0초 길이) 붕괴시키는 경우가 있어
-        # 뒤 단어의 end가 앞보다 작아질 수 있으므로 max로 단조 증가를 보장한다.
-        cur_end = abs_end if cur_end is None else max(cur_end, abs_end)
-        cur_texts.append(text)
-        if text[-1] in _SENTENCE_END:
-            sentences.append(SegmentText(
-                start=round(cur_start, 3), end=round(cur_end, 3),
-                text=" ".join(cur_texts),
-            ))
-            cur_texts, cur_start, cur_end = [], None, None
-    if cur_texts:  # 문장 끝 부호 없이 오디오가 끝난 나머지 단어들도 한 문장으로
-        sentences.append(SegmentText(
-            start=round(cur_start, 3), end=round(cur_end, 3),
-            text=" ".join(cur_texts),
-        ))
-    return sentences
-
-
 def transcribe_korean(
     audio_path: str,
     transcribe_fn: Optional[Callable[[str], list]] = None,
@@ -114,13 +74,25 @@ def transcribe_korean(
     """원본 오디오 전체를 한 번에 Whisper에 넣어(무음 기준으로 직접 잘라 개별
     호출하지 않음 — _run_pipeline의 docstring 참고, 비명/소음 구간을 통째로 떼어
     별도 호출하면 반복 환각이 오히려 심해짐을 실측 확인) 단어 단위로 전사한다.
-    검수 단위로는 단어가 너무 잘게 쪼개져 부자연스러우므로 문장 끝 부호 기준으로
-    다시 문장으로 묶는다. Whisper가 돌려주는 타임스탬프가 이미 원본 전체 타임라인
-    기준이므로 별도 오프셋 복원이 필요 없다.
 
-    결과적으로 문장 단위 + 정확한 타임코드가 되어, 뒤의 align 단계가 영어 자막 줄의
-    시간 구간에 맞는 한국어 문장을 정확히 골라 붙일 수 있다.
+    문장 부호 기준으로 미리 문장으로 묶지 않고 단어를 그대로 반환한다 — Whisper가
+    문장 중간에 부호를 안 찍는 경우가 흔한데(실측 확인), 미리 문장으로 묶으면 원래는
+    별개인 여러 문장이 하나의 큰 덩어리가 되어 그 덩어리 전체가 겹치는 모든 영어
+    자막 줄에 통째로 붙어버린다(예: 25초 분량 3문장이 1.8초짜리 영어 한 줄에 붙음).
+
+    단어를 그대로 두면 뒤의 align()이 각 영어 자막 줄의 시간 구간에 실제로 겹치는
+    단어들만 시간순으로 모아 붙일 수 있다. 이때 순서는 항상 한국어가 실제로 말해진
+    시간순 그대로이므로(영어 단어와 1:1로 맞추는 게 아니라 "이 시간 구간에 어떤
+    한국어가 있었는가"를 모으는 것) 한국어와 영어의 어순 차이는 문제가 되지 않는다.
     """
     transcribe_fn = transcribe_fn or _run_pipeline
     words = transcribe_fn(audio_path)
-    return _group_words_into_sentences(words)
+    segments = []
+    for w in words:
+        text = w["text"].strip()
+        if not text:
+            continue
+        start, end = w["timestamp"]
+        end = end if end is not None else start
+        segments.append(SegmentText(start=round(float(start), 3), end=round(float(end), 3), text=text))
+    return segments
