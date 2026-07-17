@@ -22,30 +22,34 @@ def align(korean: List[SegmentText], dubbed: List[SegmentText],
     붙어버린다(실측 확인). 비율 기준을 두면 이런 경계의 사소한 겹침은 걸러내면서도,
     짧은 영어 줄 여러 개가 긴 한국어 발화 하나에 온전히 포함되는 정당한 공유
     케이스는 그대로 유지된다(포함되는 쪽 길이 전체가 겹치므로 비율이 100%에 가깝다).
+
+    영어 자막 줄 어디와도 겹치지 않는 한국어 세그먼트는 결과에서 제외한다 —
+    영어 대사가 존재하지 않는 시간대(효과음, 비명, 배경 소음 등)에서 로컬 STT가
+    주워듣거나 환각으로 지어낸 단어가 실측으로 다수 확인되었고, 이런 단어들이
+    "번역 누락"으로 오탐되어 검수 결과를 어지럽혔다. 영어 SRT를 기준(주체)으로
+    삼는다는 원칙에 따라, 대응하는 영어 대사가 없는 구간은 애초에 검수 대상이
+    아니다.
     """
     pairs: List[AlignedPair] = []
-    matched_korean = set()
     for j, en in enumerate(dubbed):
         overlapping = []
-        for i, kr in enumerate(korean):
+        for kr in korean:
             ov = _overlap(kr, en)
             if ov <= 0:
                 continue
             shorter = min(kr.end - kr.start, en.end - en.start)
             if shorter > 0 and ov / shorter >= min_overlap_ratio:
-                overlapping.append((i, kr))
+                overlapping.append(kr)
         if overlapping:
-            for i, _ in overlapping:
-                matched_korean.add(i)
-            overlapping.sort(key=lambda pair: pair[1].start)
-            texts = [kr.text for _, kr in overlapping]
-            starts = [kr.start for _, kr in overlapping]
-            ends = [kr.end for _, kr in overlapping]
+            overlapping.sort(key=lambda kr: kr.start)
+            texts = [kr.text for kr in overlapping]
+            starts = [kr.start for kr in overlapping]
+            ends = [kr.end for kr in overlapping]
             merged_kr = SegmentText(
                 start=min(starts), end=max(ends),
-                speaker=overlapping[0][1].speaker, text=" ".join(texts),
+                speaker=overlapping[0].speaker, text=" ".join(texts),
             )
-            best_ov = max(_overlap(kr, en) for _, kr in overlapping)
+            best_ov = max(_overlap(kr, en) for kr in overlapping)
             union = max(merged_kr.end, en.end) - min(merged_kr.start, en.start)
             conf = round(best_ov / union, 3) if union > 0 else 0.0
             pairs.append(AlignedPair(id=f"pair_{j+1}", korean=merged_kr, dubbed=en,
@@ -53,11 +57,7 @@ def align(korean: List[SegmentText], dubbed: List[SegmentText],
         else:
             pairs.append(AlignedPair(id=f"pair_{j+1}", korean=None, dubbed=en,
                                      alignment_confidence=0.0))
-    for i, kr in enumerate(korean):
-        if i not in matched_korean:
-            pairs.append(AlignedPair(id=f"extra_{i+1}", korean=kr, dubbed=None,
-                                     alignment_confidence=0.0))
-    pairs.sort(key=lambda p: (p.korean or p.dubbed).start)
+    pairs.sort(key=lambda p: p.dubbed.start)
     return pairs
 
 

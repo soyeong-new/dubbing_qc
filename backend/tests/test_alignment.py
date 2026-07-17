@@ -21,11 +21,15 @@ def test_align_matches_by_overlap():
     assert 0.8 < pairs[0].alignment_confidence <= 1.0
 
 
-def test_align_reports_unmatched_korean():
-    pairs = align(korean=[kr(1.0, 3.0, "대사"), kr(10.0, 12.0, "누락된 대사")],
+def test_align_drops_korean_with_no_matching_dubbed_line():
+    # 영어 SRT가 기준(주체)이다 — 대응하는 영어 대사가 없는 시간대의 한국어는
+    # 결과에서 아예 제외한다. 이런 구간(효과음·비명 등)에서 로컬 STT가 주워듣거나
+    # 환각으로 지어낸 단어가 실측으로 다수 확인되었고, 전부 "번역 누락"으로
+    # 오탐되어 검수 결과를 어지럽혔기 때문이다.
+    pairs = align(korean=[kr(1.0, 3.0, "대사"), kr(10.0, 12.0, "영어 자막이 없는 구간의 소리")],
                   dubbed=[en(1.0, 3.0, "line")])
-    assert pairs[1].dubbed is None
-    assert pairs[1].alignment_confidence == 0.0
+    assert len(pairs) == 1
+    assert pairs[0].korean.text == "대사"
 
 
 def test_align_reports_extra_dubbed():
