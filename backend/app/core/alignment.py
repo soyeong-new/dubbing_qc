@@ -68,7 +68,9 @@ def assign_scenes(pairs: List[AlignedPair], gap_threshold: float = 3.0,
     scene_start = None
     scene_count = 0
     for p in pairs:
-        anchor = p.korean or p.dubbed
+        # 영어 SRT가 타임코드 기준(주체)이다 — 한국어 STT 경계는 환각/부정확한
+        # 타이밍을 포함할 수 있어 씬 분할 기준으로 쓰지 않는다.
+        anchor = p.dubbed or p.korean
         new_scene = False
         if prev_end is not None and anchor.start - prev_end > gap_threshold:
             new_scene = True

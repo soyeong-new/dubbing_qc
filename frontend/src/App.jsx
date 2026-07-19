@@ -54,9 +54,11 @@ function App() {
     // AlignedPair → 기존 세그먼트 상태로 변환 (검수 뷰 재사용)
     setSegments(result.pairs.map((p) => ({
       id: p.id,
-      start_time: (p.korean || p.dubbed).start,
-      end_time: (p.korean || p.dubbed).end,
-      speaker: (p.korean || p.dubbed).speaker,
+      // 영어 SRT가 타임코드 기준(주체)이다 — 한국어 STT 경계는 환각/부정확한
+      // 타이밍을 포함할 수 있어 영상 이동에는 쓰지 않는다(실측 확인).
+      start_time: (p.dubbed || p.korean).start,
+      end_time: (p.dubbed || p.korean).end,
+      speaker: (p.dubbed || p.korean).speaker,
       original_text: p.korean ? p.korean.text : "",
       translated_text: p.dubbed ? p.dubbed.text : "",
     })));

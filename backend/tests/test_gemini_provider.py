@@ -32,7 +32,9 @@ def test_parse_judge_response_maps_to_findings():
     f = findings[0]
     assert f.segment_id == "pair_3"
     assert f.source == "persona:native"
-    assert f.start_time == 6.0
+    # 영어 SRT(dubbed)가 타임코드 기준(주체) — 한국어 STT 경계(6.0)가 아니라
+    # 더빙 시작 시각(6.1)을 써야 영상 이동·표시가 실제 대사 위치와 맞는다.
+    assert f.start_time == 6.1
     assert f.current_translation == "I have no kidney."
 
 

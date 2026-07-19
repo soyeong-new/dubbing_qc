@@ -68,7 +68,9 @@ def parse_judge_response(text: str, pairs: List[AlignedPair], persona: Persona) 
         axis = item.get("axis", default_axis)
         if axis not in AXES:
             axis = default_axis
-        anchor = pair.korean or pair.dubbed
+        # 영어 SRT가 타임코드 기준(주체)이다 — 한국어 STT 경계는 환각/부정확한
+        # 타이밍을 포함할 수 있어 화면 표시·영상 이동에는 쓰지 않는다(실측 확인).
+        anchor = pair.dubbed or pair.korean
         finding_type = item.get("finding_type", "quality")
         if finding_type not in ("quality", "sensitive"):
             finding_type = "quality"

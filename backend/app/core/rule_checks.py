@@ -13,7 +13,9 @@ from app.schemas import AlignedPair, QCFinding
 def _finding(kind: str, pair: AlignedPair, severity: str, issue_type: str,
              axis: str, description: str, recommendation: str,
              category: str = "localization") -> QCFinding:
-    anchor = pair.korean or pair.dubbed
+    # 영어 SRT가 타임코드 기준(주체)이다 — 한국어 STT 경계는 환각/부정확한
+    # 타이밍을 포함할 수 있어 화면 표시·영상 이동에는 쓰지 않는다(실측 확인).
+    anchor = pair.dubbed or pair.korean
     return QCFinding(
         id=f"rule_{kind}_{pair.id}", segment_id=pair.id, category=category,
         severity=severity, issue_type=issue_type,
@@ -255,7 +257,7 @@ def check_sensitive_words(pairs: List[AlignedPair], terms: List[tuple] = None) -
         text_lower = p.dubbed.text.lower()
         for word, category in terms:
             if word in text_lower:
-                anchor = p.korean or p.dubbed
+                anchor = p.dubbed or p.korean
                 findings.append(QCFinding(
                     id=f"rule_sensitive_{p.id}_{word.replace(' ', '_')}",
                     segment_id=p.id, category="localization", severity="high",
