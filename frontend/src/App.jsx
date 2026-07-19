@@ -2,7 +2,9 @@ import React, { useState, useEffect, useRef } from "react";
 import "./App.css";
 import ProjectView from "./views/ProjectView";
 import ReportView from "./views/ReportView";
-import { postFeedback } from "./api";
+import { postFeedback, getJob, mediaUrl } from "./api";
+
+const LAST_JOB_KEY = "qc_last_job";
 
 function App() {
   const [view, setView] = useState("project"); // "project" | "review" | "report"
@@ -60,7 +62,36 @@ function App() {
     })));
     updateStats(result.findings);
     setView("review");
+    // 새로고침 시 복원할 수 있도록 완료된 작업의 job_id만 저장한다 — 업로드 파일
+    // 자체(File 객체)는 저장이 불가능하므로 영상 미리보기는 백엔드가 보관 중인
+    // media_path를 /api/qc/media 엔드포인트로 다시 받아온다.
+    localStorage.setItem(LAST_JOB_KEY, JSON.stringify({ jobId: id, movieTitle: movieTitle || "untitled" }));
   };
+
+  // 0. 새로고침 복원 — 마지막으로 완료된 작업이 있으면(백엔드가 재시작되지 않은
+  // 동안) 검수 화면과 영상 미리보기를 다시 불러온다.
+  useEffect(() => {
+    const saved = localStorage.getItem(LAST_JOB_KEY);
+    if (!saved) return;
+    const { jobId: savedJobId, movieTitle } = JSON.parse(saved);
+    (async () => {
+      try {
+        const job = await getJob(savedJobId);
+        if (!job.status) {
+          // 백엔드가 재시작되어 더 이상 존재하지 않는 작업 — 참조를 지운다.
+          localStorage.removeItem(LAST_JOB_KEY);
+          return;
+        }
+        if (job.status !== "done") return; // 아직 실행 중이었다면 다음 새로고침에 재시도
+        handleJobComplete(savedJobId, job.result, movieTitle);
+        setOriginalVideoSrc(mediaUrl(savedJobId, "original"));
+        setDubbedVideoSrc(mediaUrl(savedJobId, "dubbed"));
+      } catch (e) {
+        // 네트워크 오류 등 — 다음 새로고침에 재시도하도록 참조는 유지한다.
+      }
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // 2. Video preview — Project 탭에서 이미 업로드된 File 객체로 로컬 blob URL만 생성한다.
   // 서버에 다시 업로드하지 않는다 (검수 탭 전용 중복 업로드였던 것을 제거).
@@ -470,7 +501,6 @@ function App() {
               src={activeVideoRole === "original" ? originalVideoSrc : dubbedVideoSrc}
               playsInline
               loop
-              muted
               onClick={togglePlayback}
             />
             

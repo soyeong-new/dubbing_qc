@@ -83,6 +83,42 @@ def test_reverdict_excluding_high_finding_lifts_fail(client, tmp_path):
     assert res.json()["status"] != "fail"  # high 오탐 제외 → 반려 해제
 
 
+def test_get_media_serves_uploaded_file_by_role(client, tmp_path):
+    en = tmp_path / "en.srt"; en.write_text(EN_SRT, encoding="utf-8")
+    kr = tmp_path / "kr.srt"; kr.write_text(KR_SRT, encoding="utf-8")
+    video = tmp_path / "original.mp4"; video.write_bytes(b"fake video bytes")
+    res = client.post("/api/qc/run", json={
+        "movie_title": "t", "en_srt_path": str(en), "kr_srt_path": str(kr),
+        "original_media_path": str(video),
+    })
+    job_id = res.json()["job_id"]
+
+    media_res = client.get(f"/api/qc/media/{job_id}/original")
+
+    assert media_res.status_code == 200
+    assert media_res.content == b"fake video bytes"
+
+
+def test_get_media_404_when_role_not_uploaded(client, tmp_path):
+    en = tmp_path / "en.srt"; en.write_text(EN_SRT, encoding="utf-8")
+    res = client.post("/api/qc/run", json={"movie_title": "t", "en_srt_path": str(en)})
+    job_id = res.json()["job_id"]
+
+    assert client.get(f"/api/qc/media/{job_id}/dubbed").status_code == 404
+
+
+def test_get_media_404_for_unknown_job(client):
+    assert client.get("/api/qc/media/nope/original").status_code == 404
+
+
+def test_get_media_400_for_invalid_role(client, tmp_path):
+    en = tmp_path / "en.srt"; en.write_text(EN_SRT, encoding="utf-8")
+    res = client.post("/api/qc/run", json={"movie_title": "t", "en_srt_path": str(en)})
+    job_id = res.json()["job_id"]
+
+    assert client.get(f"/api/qc/media/{job_id}/stem").status_code == 400
+
+
 def test_removed_endpoints_are_gone(client):
     assert client.get("/api/qc/mock-data").status_code == 404
     assert client.post("/api/qc/translate", json={"segments": []}).status_code == 404

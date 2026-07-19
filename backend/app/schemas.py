@@ -69,6 +69,10 @@ class QCJobInput(BaseModel):
     kr_srt_path: Optional[str] = None
     kr_audio_path: Optional[str] = None
     stem_audio_path: Optional[str] = None
+    # QC 파이프라인은 사용하지 않는다 — 새로고침 후 화면을 복원할 때 영상
+    # 미리보기를 다시 서빙하기 위해 job_id에 매달아 보관해 둘 뿐이다.
+    original_media_path: Optional[str] = None
+    dubbed_media_path: Optional[str] = None
 
 
 class QCResult(BaseModel):

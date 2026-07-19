@@ -15,7 +15,7 @@ if os.path.exists(dotenv_path):
                     os.environ[parts[0].strip()] = parts[1].strip().strip("\"'")
 
 from fastapi import FastAPI, UploadFile, File, HTTPException, BackgroundTasks
-from fastapi.responses import Response
+from fastapi.responses import Response, FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from app.schemas import QCJobInput, FeedbackEntry, QCFinding
@@ -130,7 +130,10 @@ async def run_qc(job: QCJobInput, background_tasks: BackgroundTasks):
     except ProviderNotConfiguredError as e:
         raise HTTPException(503, str(e))
     job_id = uuid.uuid4().hex[:12]
-    JOBS[job_id] = {"status": "queued", "progress": None, "movie": job.movie_title}
+    JOBS[job_id] = {
+        "status": "queued", "progress": None, "movie": job.movie_title,
+        "media": {"original": job.original_media_path, "dubbed": job.dubbed_media_path},
+    }
     background_tasks.add_task(_run_job, job_id, job)
     return {"job_id": job_id}
 
@@ -140,6 +143,18 @@ def get_job(job_id: str):
     if job_id not in JOBS:
         raise HTTPException(404, "존재하지 않는 작업입니다.")
     return JOBS[job_id]
+
+
+@app.get("/api/qc/media/{job_id}/{role}")
+def get_media(job_id: str, role: str):
+    if job_id not in JOBS:
+        raise HTTPException(404, "존재하지 않는 작업입니다.")
+    if role not in ("original", "dubbed"):
+        raise HTTPException(400, "role은 original 또는 dubbed여야 합니다.")
+    path = JOBS[job_id].get("media", {}).get(role)
+    if not path or not os.path.exists(path):
+        raise HTTPException(404, "미디어 파일을 찾을 수 없습니다.")
+    return FileResponse(path)
 
 
 @app.post("/api/qc/feedback")

@@ -53,6 +53,8 @@ export default function ProjectView({ uploads, setUploads, onJobComplete }) {
         kr_srt_path: uploads.srt_kr?.media_path || null,
         kr_audio_path: uploads.original?.audio_path || null,
         stem_audio_path: uploads.stem?.audio_path || null,
+        original_media_path: uploads.original?.media_path || null,
+        dubbed_media_path: uploads.dubbed?.media_path || null,
       });
       pollRef.current = setInterval(async () => {
         const job = await getJob(job_id);

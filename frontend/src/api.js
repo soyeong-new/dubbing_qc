@@ -52,3 +52,7 @@ export async function reverdict(jobId, excludedFindingIds) {
 export function exportUrl(jobId) {
   return `${API_BASE}/api/qc/export/${jobId}`;
 }
+
+export function mediaUrl(jobId, role) {
+  return `${API_BASE}/api/qc/media/${jobId}/${role}`;
+}
