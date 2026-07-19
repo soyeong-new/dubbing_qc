@@ -1,4 +1,5 @@
 import asyncio
+import os
 import re
 from typing import List, Optional
 from app.schemas import SegmentText
@@ -38,7 +39,19 @@ async def load_text_source(lang: str, srt_path: Optional[str],
             return parse_srt(f.read())
     if audio_path and lang == "ko":
         from app.core.local_stt import transcribe_korean
+        from app.core.vocal_separation import separate_vocals
+
+        stt_audio_path = audio_path
+        try:
+            # 원본 오디오는 대사+음악+효과음이 섞인 전체 믹스라, 효과음/음악 구간에서
+            # Whisper가 환각을 일으키는 것이 실측으로 확인되었다. STT 직전에 보컬만
+            # 분리해 넣으면 그 문맥 오염을 줄일 수 있다.
+            out_dir = os.path.join(os.path.dirname(audio_path), "_demucs")
+            vocals_path, _ = await asyncio.to_thread(separate_vocals, audio_path, out_dir)
+            stt_audio_path = str(vocals_path)
+        except Exception as e:
+            print(f"[STT] 보컬 분리 실패, 원본 오디오로 진행: {e}")
         # transcribe_korean은 transformers 파이프라인을 동기로 호출한다 — asyncio
         # 이벤트 루프를 막지 않도록 스레드로 넘긴다.
-        return await asyncio.to_thread(transcribe_korean, audio_path)
+        return await asyncio.to_thread(transcribe_korean, stt_audio_path)
     raise ValueError(f"{lang}: SRT 또는 지원되는 오디오 STT 경로가 필요합니다.")

@@ -48,3 +48,43 @@ async def test_load_text_source_falls_back_to_local_stt_for_korean(monkeypatch):
 async def test_load_text_source_requires_some_input():
     with pytest.raises(ValueError):
         await load_text_source("ko", None, None)
+
+
+async def test_load_text_source_runs_stt_on_separated_vocals(monkeypatch, tmp_path):
+    # 원본은 대사+음악+효과음이 섞인 전체 믹스라 Whisper 환각의 원인이 된다 —
+    # STT에는 원본이 아니라 분리된 보컬 파일이 들어가야 한다.
+    captured = {}
+
+    def fake_separate_vocals(audio_path, out_dir, model="htdemucs"):
+        captured["separate_audio_path"] = audio_path
+        vocals = tmp_path / "vocals.wav"
+        vocals.write_bytes(b"v")
+        return vocals, tmp_path / "no_vocals.wav"
+
+    def fake_transcribe_korean(audio_path):
+        captured["stt_audio_path"] = audio_path
+        return [SegmentText(start=0.0, end=1.0, text="분리된 보컬")]
+
+    monkeypatch.setattr("app.core.vocal_separation.separate_vocals", fake_separate_vocals)
+    monkeypatch.setattr("app.core.local_stt.transcribe_korean", fake_transcribe_korean)
+
+    segments = await load_text_source("ko", None, "/tmp/original.wav")
+
+    assert captured["separate_audio_path"] == "/tmp/original.wav"
+    assert captured["stt_audio_path"] == str(tmp_path / "vocals.wav")
+    assert segments[0].text == "분리된 보컬"
+
+
+async def test_load_text_source_falls_back_to_original_audio_when_separation_fails(monkeypatch):
+    # 분리 실패(예: demucs 오류)가 전체 STT 작업을 막으면 안 된다 — 원본으로 계속 진행한다.
+    def boom(audio_path, out_dir, model="htdemucs"):
+        raise RuntimeError("demucs 실패")
+
+    def fake_transcribe_korean(audio_path):
+        return [SegmentText(start=0.0, end=1.0, text=f"stt:{audio_path}")]
+
+    monkeypatch.setattr("app.core.vocal_separation.separate_vocals", boom)
+    monkeypatch.setattr("app.core.local_stt.transcribe_korean", fake_transcribe_korean)
+
+    segments = await load_text_source("ko", None, "/tmp/original.wav")
+    assert segments[0].text == "stt:/tmp/original.wav"
