@@ -70,3 +70,36 @@ def test_qcfinding_finding_type_defaults_to_quality():
         recommendation="r", confidence=0.9,
     )
     assert f.finding_type == "quality"
+
+
+from app.schemas import HeldSegment, JudgeOutput, QCFinding, QCResult, Verdict
+
+
+def _finding(**kw):
+    base = dict(id="f1", segment_id="pair_1", category="localization", severity="low",
+                issue_type="t", start_time=0.0, end_time=1.0, speaker="?",
+                description="d", original_text="o", current_translation="c",
+                recommendation="r", confidence=0.9)
+    base.update(kw)
+    return QCFinding(**base)
+
+
+def test_finding_v3_fields_default():
+    f = _finding()
+    assert f.heard_korean == ""
+    assert f.consensus == ""
+
+
+def test_judge_output_defaults():
+    out = JudgeOutput()
+    assert out.findings == [] and out.unheard_segment_ids == []
+
+
+def test_qcresult_held_segments():
+    r = QCResult(
+        verdict=Verdict(status="pass", axis_scores=[]),
+        findings=[], pairs=[],
+        held=[HeldSegment(scene_id="scene_1", segment_id="pair_3",
+                          start=10.0, end=12.0, reason="청취 불가")],
+    )
+    assert r.held[0].reason == "청취 불가"

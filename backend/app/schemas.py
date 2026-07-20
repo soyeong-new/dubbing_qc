@@ -49,6 +49,23 @@ class QCFinding(BaseModel):
     agreement: int = 1
     alternatives: Dict[str, str] = Field(default_factory=dict)
     finding_type: Literal["quality", "sensitive"] = "quality"
+    heard_korean: str = ""   # 모델이 실제로 들은 한국어 — 검수자가 청취 정확성을 검증하는 고리
+    consensus: str = ""      # "2/2" 등 합의 수준. 빈 문자열 = 합의 미실시(룰 체크 등)
+
+
+class HeldSegment(BaseModel):
+    """판단 보류 구간 — 청취 불가/교차 불일치로 검증하지 못한 커버리지 공백."""
+    scene_id: str
+    segment_id: str = ""
+    start: float
+    end: float
+    reason: str  # "청취 불가" | "교차 불일치"
+
+
+class JudgeOutput(BaseModel):
+    """페르소나 1회 호출의 결과: 지적 + 정직한 보류 목록."""
+    findings: List["QCFinding"] = Field(default_factory=list)
+    unheard_segment_ids: List[str] = Field(default_factory=list)
 
 
 class AxisScore(BaseModel):
@@ -79,6 +96,7 @@ class QCResult(BaseModel):
     verdict: Verdict
     findings: List[QCFinding]
     pairs: List[AlignedPair]
+    held: List[HeldSegment] = Field(default_factory=list)
 
 
 class FeedbackEntry(BaseModel):
